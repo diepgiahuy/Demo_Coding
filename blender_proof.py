@@ -22,6 +22,7 @@ scene.render.engine = "BLENDER_EEVEE"
 scene.render.resolution_x = 360
 scene.render.resolution_y = 640
 scene.render.resolution_percentage = 100
+scene.render.image_settings.media_type = "VIDEO"
 scene.render.image_settings.file_format = "FFMPEG"
 scene.render.ffmpeg.format = "MPEG4"
 scene.render.ffmpeg.codec = "H264"
@@ -108,7 +109,10 @@ bpy.ops.render.render(animation=True)
 
 report = {
     "blender_version": bpy.app.version_string,
+    "ffmpeg_supported": bool(bpy.app.ffmpeg.supported),
     "engine": scene.render.engine,
+    "media_type": scene.render.image_settings.media_type,
+    "file_format": scene.render.image_settings.file_format,
     "frame_start": scene.frame_start,
     "frame_end": scene.frame_end,
     "fps": scene.render.fps,
@@ -123,6 +127,7 @@ report = {
 
 REPORT.write_text(json.dumps(report, indent=2), encoding="utf-8")
 
+assert report["ffmpeg_supported"], "Blender FFmpeg support is unavailable"
 assert report["blend_exists"], "preview.blend was not created"
 assert report["video_exists"], "preview.mp4 was not created"
 assert report["video_size_bytes"] > 1000, "preview.mp4 is unexpectedly small"
