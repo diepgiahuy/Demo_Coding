@@ -1,0 +1,122 @@
+        con.limit_ang_z_lower, con.limit_ang_z_upper = limits[2]
+    obj.hide_render = True
+    obj.display_type = "WIRE"
+    return obj
+
+
+def ensure_world_quality(scene, frame_end):
+    # The first rigid body creates the world. Call this after at least one body exists.
+    world = scene.rigidbody_world
+    if world:
+        world.substeps_per_frame = 20
+        world.solver_iterations = 30
+        world.time_scale = 1.0
+        world.point_cache.frame_start = 1
+        world.point_cache.frame_end = frame_end
+    return world
+
+
+def make_fire_smoke(collection, origin, name="FX_FireSmoke_Hero", demo=False):
+    # Use Blender's quick-smoke operator to create valid Mantaflow modifiers/materials.
+    emitter = sphere(name + "_Emitter", (origin[0], origin[1], origin[2] + 0.22),
+                     0.28 if demo else 0.34, None, collection, 2)
+    select_only(emitter)
+    before = set(bpy.data.objects)
+    bpy.ops.object.quick_smoke(style="BOTH", show_flows=False)
+    bpy.context.view_layer.update()
+    created = [o for o in bpy.data.objects if o not in before]
+    domain = next((o for o in created if any(m.type == "FLUID" and m.fluid_type == "DOMAIN" for m in o.modifiers)), None)
+    if domain is None:
+        # Some versions make the domain the active object but do not expose it in created immediately.
+        domain = bpy.context.object if bpy.context.object != emitter else None
+    if domain is None:
+        raise RuntimeError("Quick Smoke did not create a fluid domain")
+    domain.name = name + "_Domain"
+    link_obj(domain, collection)
+    # Expand the default domain for a taller smoke column.
+    domain.location = (origin[0], origin[1], origin[2] + (1.8 if demo else 2.4))
+    domain.dimensions = (2.2 if demo else 3.0, 2.2 if demo else 3.0, 3.8 if demo else 5.0)
+    bpy.context.view_layer.update()
+    dmod = next(m for m in domain.modifiers if m.type == "FLUID" and m.fluid_type == "DOMAIN")
+    ds = dmod.domain_settings
+    if ds is None:
+        bpy.context.view_layer.update()
+        ds = dmod.domain_settings
+    if ds is None:
+        raise RuntimeError("Fluid domain settings are unavailable")
+    ds.domain_type = "GAS"
+    ds.resolution_max = 32 if demo else 96
+    ds.cache_type = "ALL" if demo else "MODULAR"
+    ds.cache_data_format = "OPENVDB"
+    ds.cache_directory = str(CACHE_ROOT / ("demo_fire" if demo else "hero_fire"))
+    ds.cache_frame_start = 1
+    ds.cache_frame_end = 84 if demo else 120
+    ds.use_adaptive_domain = True
+    ds.adapt_margin = 5
+    ds.adapt_threshold = 0.015 if demo else 0.008
+    ds.additional_res = 2 if demo else 4
+    ds.vorticity = 1.2 if demo else 1.6
+    ds.burning_rate = 0.55
+    ds.flame_smoke = 1.6
+    ds.flame_vorticity = 0.8
+    ds.flame_ignition = 1.25
+    ds.flame_max_temp = 2.2
+    ds.alpha = 0.8
+    ds.beta = 1.1
+    if not demo:
+        ds.use_noise = True
+        ds.noise_scale = 2
+        ds.noise_strength = 1.1
+    fmod = next(m for m in emitter.modifiers if m.type == "FLUID" and m.fluid_type == "FLOW")
+    fs = fmod.flow_settings
+    if fs:
+        fs.flow_type = "BOTH"
+        fs.flow_behavior = "INFLOW"
+        fs.fuel_amount = 1.25
+        fs.density = 0.8
+        fs.temperature = 1.8
+        fs.surface_distance = 1.5
+        fs.subframes = 2
+        fs.use_initial_velocity = True
+        fs.velocity_coord = (0.0, 0.0, 0.55)
+        fs.velocity_random = 0.5
+    emitter.hide_render = True
+    domain["fx_role"] = "mantaflow_gas_domain"
+    domain["quality"] = "draft_32" if demo else "hero_96_noise2"
+    domain["cache_note"] = "Demo cache is disposable. Hero asset uses Modular cache."
+    return domain, emitter
+
+
+def make_window_asset(collection, origin=(0, 0, 0), physics=True):
+    steel = bpy.data.materials.get("steel") or make_material("steel_v2", (.28, .34, .36), .35, .65)
+    glass = make_material("glass_v2", (.04, .13, .17), .18, .15)
+    x0, y0, z0 = origin
+    frame = []
+    frame.append(cube("Window_Frame_L", (x0 - 1.05, y0, z0 + 1.1), (.12, .16, 2.3), steel, collection, .02))
+    frame.append(cube("Window_Frame_R", (x0 + 1.05, y0, z0 + 1.1), (.12, .16, 2.3), steel, collection, .02))
+    frame.append(cube("Window_Frame_T", (x0, y0, z0 + 2.2), (2.2, .16, .12), steel, collection, .02))
+    frame.append(cube("Window_Frame_B", (x0, y0, z0), (2.2, .16, .12), steel, collection, .02))
+    for f in frame:
+        if physics:
+            add_rigidbody(f, "PASSIVE", shape="BOX", friction=.5)
+    shards = []
+    cols, rows = 4, 4
+    left, right = x0 - .96, x0 + .96
+    bottom, top = z0 + .10, z0 + 2.10
+    dx, dz = (right - left) / cols, (top - bottom) / rows
+    for r in range(rows):
+        for c in range(cols):
+            xa, xb = left + c * dx, left + (c + 1) * dx
+            za, zb = bottom + r * dz, bottom + (r + 1) * dz
+            jx = (random.random() - .5) * dx * .16
+            jz = (random.random() - .5) * dz * .16
+            center = ((xa + xb) * .5 + jx, y0, (za + zb) * .5 + jz)
+            if (r + c) % 2 == 0:
+                tris = [
+                    [(xa, y0, za), (xb, y0, za), (center[0], y0, center[2])],
+                    [(xb, y0, za), (xb, y0, zb), (center[0], y0, center[2])],
+                    [(xb, y0, zb), (xa, y0, zb), (center[0], y0, center[2])],
+                    [(xa, y0, zb), (xa, y0, za), (center[0], y0, center[2])],
+                ]
+            else:
+                tris = [
