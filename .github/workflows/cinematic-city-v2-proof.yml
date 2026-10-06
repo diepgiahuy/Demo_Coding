@@ -31,7 +31,7 @@ jobs:
 
       - name: Build city and render QA stills
         run: |
-          ./blender-5.2.2-linux-x64/blender --background --python cinematic_city_proof_v2.py | tee blender.log
+          ./blender-5.2.2-linux-x64/blender --background --python-expr "import sys; sys.path.insert(0, '.'); exec(compile(open('cinematic_city_proof_v2.py').read(), 'cinematic_city_proof_v2.py', 'exec'))" | tee blender.log
           grep -q CINEMATIC_CITY_V2_TECHNICAL_PASS blender.log
 
       - name: Verify proof files
