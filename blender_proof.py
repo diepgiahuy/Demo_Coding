@@ -4,6 +4,7 @@ import math
 from pathlib import Path
 from mathutils import Vector
 
+# CI proof target: Blender 5.2.2 LTS.
 ROOT = Path(__file__).resolve().parent
 OUT = ROOT / "artifacts"
 OUT.mkdir(exist_ok=True)
