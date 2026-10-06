@@ -25,6 +25,18 @@ jobs:
           tar -xf blender.tar.xz
           ./blender-5.2.2-linux-x64/blender --version
 
+      - name: Apply Blender 5.2 compatibility patch
+        run: |
+          python3 - <<'PY'
+          from pathlib import Path
+          p = Path('blender_proof.py')
+          s = p.read_text()
+          start = s.index('def set_linear(obj):')
+          end = s.index('\n\ndef cube', start)
+          s = s[:start] + 'def set_linear(obj):\n    return\n' + s[end:]
+          p.write_text(s)
+          PY
+
       - name: Render animatic and proof
         run: |
           ./blender-5.2.2-linux-x64/blender --background --python blender_proof.py | tee blender.log
