@@ -1,0 +1,74 @@
+name: Living City v1 Proof
+
+on:
+  push:
+    branches: [living-city-v1]
+  workflow_dispatch:
+
+jobs:
+  render:
+    runs-on: ubuntu-24.04
+    timeout-minutes: 20
+    steps:
+      - name: Checkout
+        uses: actions/checkout@v4
+
+      - name: Install runtime libraries
+        run: |
+          sudo apt-get update
+          sudo apt-get install -y libegl1 libgl1 libx11-xcb1 libxcb1 libxkbcommon0 ffmpeg
+
+      - name: Download Blender 5.2.2
+        run: |
+          curl -fL --retry 3 -o blender.tar.xz https://download.blender.org/release/Blender5.2/blender-5.2.2-linux-x64.tar.xz
+          tar -xf blender.tar.xz
+          ./blender-5.2.2-linux-x64/blender --version
+
+      - name: Render living city
+        run: |
+          ./blender-5.2.2-linux-x64/blender --background --python living_city_v1.py | tee blender.log
+          grep -q LIVING_CITY_V1_PASS blender.log
+
+      - name: Verify and extract QA frames
+        run: |
+          test -s artifacts/LivingCity_v1.mp4
+          test -s artifacts/LivingCity_v1.blend
+          test -s artifacts/report.json
+          ffprobe -v error -show_entries stream=width,height,r_frame_rate,nb_frames -show_entries format=duration,size -of json artifacts/LivingCity_v1.mp4 | tee artifacts/ffprobe.json
+          python3 - <<'PY'
+          import json
+          from pathlib import Path
+          report=json.loads(Path('artifacts/report.json').read_text())
+          probe=json.loads(Path('artifacts/ffprobe.json').read_text())
+          stream=probe['streams'][0]
+          duration=float(probe['format']['duration'])
+          assert report['blender_version'].startswith('5.2.2'), report
+          assert report['resolution']==[480,854], report
+          assert report['fps']==24, report
+          assert report['frames']==120, report
+          assert report['building_count']>=55, report
+          assert report['window_count']>=400, report
+          assert report['car_count']>=60, report
+          assert report['npc_detailed_count']>=25, report
+          assert int(stream['width'])==480, stream
+          assert int(stream['height'])==854, stream
+          assert 4.8 <= duration <= 5.2, duration
+          print('VIDEO_QA_PASS')
+          PY
+          mkdir -p artifacts/qa
+          ffmpeg -loglevel error -ss 0.20 -i artifacts/LivingCity_v1.mp4 -frames:v 1 artifacts/qa/frame_01.png -y
+          ffmpeg -loglevel error -ss 1.70 -i artifacts/LivingCity_v1.mp4 -frames:v 1 artifacts/qa/frame_02.png -y
+          ffmpeg -loglevel error -ss 3.30 -i artifacts/LivingCity_v1.mp4 -frames:v 1 artifacts/qa/frame_03.png -y
+          ffmpeg -loglevel error -ss 4.80 -i artifacts/LivingCity_v1.mp4 -frames:v 1 artifacts/qa/frame_04.png -y
+
+      - name: Upload proof artifacts
+        uses: actions/upload-artifact@v4
+        with:
+          name: living-city-v1-output
+          path: |
+            artifacts/LivingCity_v1.mp4
+            artifacts/LivingCity_v1.blend
+            artifacts/report.json
+            artifacts/ffprobe.json
+            artifacts/qa/*.png
+            blender.log
