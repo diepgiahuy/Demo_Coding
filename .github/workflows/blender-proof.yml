@@ -39,6 +39,10 @@ jobs:
             -show_entries stream=width,height,nb_frames,r_frame_rate \
             -show_entries format=duration,size \
             -of json artifacts/preview.mp4 | tee artifacts/ffprobe.json
+          mkdir -p artifacts/check_frames
+          ffmpeg -y -i artifacts/preview.mp4 \
+            -vf "select='eq(n,0)+eq(n,35)+eq(n,71)'" \
+            -vsync 0 artifacts/check_frames/frame_%02d.png
           python3 - <<'PY'
           import json
           from pathlib import Path
@@ -52,17 +56,21 @@ jobs:
           assert report['ffmpeg_supported'] is True, report
           assert report['media_type'] == 'VIDEO', report
           assert report['file_format'] == 'FFMPEG', report
-          assert report['resolution'] == [180, 320], report
-          assert report['frame_end'] - report['frame_start'] + 1 == 8, report
-          assert report['fps'] == 8, report
-          assert report['car_count'] == 6, report
-          assert report['npc_count'] == 12, report
+          assert report['resolution'] == [360, 640], report
+          assert report['frame_end'] - report['frame_start'] + 1 == 72, report
+          assert report['fps'] == 24, report
+          assert report['car_count'] == 8, report
+          assert report['npc_count'] == 20, report
           assert report['camera'] == 'Camera_Main', report
           assert report['video_exists'] is True, report
-          assert report['video_size_bytes'] > 1000, report
-          assert int(stream['width']) == 180, stream
-          assert int(stream['height']) == 320, stream
-          assert 0.8 <= duration <= 1.2, duration
+          assert report['video_size_bytes'] > 5000, report
+          assert int(stream['width']) == 360, stream
+          assert int(stream['height']) == 640, stream
+          assert int(stream['nb_frames']) == 72, stream
+          assert 2.9 <= duration <= 3.1, duration
+          frames = sorted(Path('artifacts/check_frames').glob('*.png'))
+          assert len(frames) == 3, frames
+          assert all(p.stat().st_size > 3000 for p in frames), frames
           print('FFPROBE_PROOF_PASS')
           PY
 
@@ -75,4 +83,5 @@ jobs:
             artifacts/preview.blend
             artifacts/test_report.json
             artifacts/ffprobe.json
+            artifacts/check_frames/*.png
             blender.log
