@@ -25,63 +25,68 @@ jobs:
           tar -xf blender.tar.xz
           ./blender-5.2.2-linux-x64/blender --version
 
-      - name: Render proof scene
+      - name: Render animatic and proof
         run: |
           ./blender-5.2.2-linux-x64/blender --background --python blender_proof.py | tee blender.log
           grep -q BLENDER_PROOF_PASS blender.log
 
-      - name: Verify video
+      - name: Verify outputs
         run: |
-          test -s artifacts/preview.mp4
-          test -s artifacts/preview.blend
+          test -s artifacts/THE_NEXT_WAVE_animatic.mp4
+          test -s artifacts/THE_NEXT_WAVE_proof.mp4
+          test -s artifacts/THE_NEXT_WAVE_v01.blend
           test -s artifacts/test_report.json
-          ffprobe -v error \
-            -show_entries stream=width,height,nb_frames,r_frame_rate \
-            -show_entries format=duration,size \
-            -of json artifacts/preview.mp4 | tee artifacts/ffprobe.json
+          test -s artifacts/dialogue_en.txt
+          test -s artifacts/README_vi.md
+
+          ffprobe -v error -show_entries stream=width,height,nb_frames,r_frame_rate -show_entries format=duration,size -of json artifacts/THE_NEXT_WAVE_animatic.mp4 > artifacts/animatic_ffprobe.json
+          ffprobe -v error -show_entries stream=width,height,nb_frames,r_frame_rate -show_entries format=duration,size -of json artifacts/THE_NEXT_WAVE_proof.mp4 > artifacts/proof_ffprobe.json
+
           mkdir -p artifacts/check_frames
-          ffmpeg -y -i artifacts/preview.mp4 \
-            -vf "select='eq(n,0)+eq(n,35)+eq(n,71)'" \
-            -vsync 0 artifacts/check_frames/frame_%02d.png
+          ffmpeg -y -i artifacts/THE_NEXT_WAVE_animatic.mp4 -vf "select='eq(n,60)+eq(n,210)+eq(n,410)+eq(n,620)+eq(n,760)+eq(n,980)+eq(n,1060)+eq(n,1180)'" -vsync 0 artifacts/check_frames/animatic_%02d.png
+          ffmpeg -y -i artifacts/THE_NEXT_WAVE_proof.mp4 -vf "select='eq(n,20)+eq(n,120)+eq(n,200)+eq(n,260)'" -vsync 0 artifacts/check_frames/proof_%02d.png
+
           python3 - <<'PY'
           import json
           from pathlib import Path
 
           report = json.loads(Path('artifacts/test_report.json').read_text())
-          probe = json.loads(Path('artifacts/ffprobe.json').read_text())
-          stream = probe['streams'][0]
-          duration = float(probe['format']['duration'])
+          anim = json.loads(Path('artifacts/animatic_ffprobe.json').read_text())
+          proof = json.loads(Path('artifacts/proof_ffprobe.json').read_text())
+          astream = anim['streams'][0]
+          pstream = proof['streams'][0]
 
           assert report['blender_version'].startswith('5.2.2'), report
           assert report['ffmpeg_supported'] is True, report
-          assert report['media_type'] == 'VIDEO', report
-          assert report['file_format'] == 'FFMPEG', report
+          assert report['fps'] == 30, report
           assert report['resolution'] == [360, 640], report
-          assert report['frame_end'] - report['frame_start'] + 1 == 72, report
-          assert report['fps'] == 24, report
-          assert report['car_count'] == 8, report
-          assert report['npc_count'] == 20, report
           assert report['camera'] == 'Camera_Main', report
-          assert report['video_exists'] is True, report
-          assert report['video_size_bytes'] > 5000, report
-          assert int(stream['width']) == 360, stream
-          assert int(stream['height']) == 640, stream
-          assert int(stream['nb_frames']) == 72, stream
-          assert 2.9 <= duration <= 3.1, duration
+          assert report['animatic_frames'] == 1200, report
+          assert report['proof_frames'] == 270, report
+          assert int(astream['width']) == 360 and int(astream['height']) == 640, astream
+          assert int(pstream['width']) == 360 and int(pstream['height']) == 640, pstream
+          assert int(astream['nb_frames']) == 1200, astream
+          assert int(pstream['nb_frames']) == 270, pstream
+          assert 39.8 <= float(anim['format']['duration']) <= 40.2, anim
+          assert 8.8 <= float(proof['format']['duration']) <= 9.2, proof
           frames = sorted(Path('artifacts/check_frames').glob('*.png'))
-          assert len(frames) == 3, frames
-          assert all(p.stat().st_size > 3000 for p in frames), frames
+          assert len(frames) == 12, frames
+          assert all(p.stat().st_size > 2000 for p in frames), frames
           print('FFPROBE_PROOF_PASS')
           PY
 
       - name: Upload proof artifacts
         uses: actions/upload-artifact@v4
         with:
-          name: blender-proof-output
+          name: the-next-wave-v01
           path: |
-            artifacts/preview.mp4
-            artifacts/preview.blend
+            artifacts/THE_NEXT_WAVE_animatic.mp4
+            artifacts/THE_NEXT_WAVE_proof.mp4
+            artifacts/THE_NEXT_WAVE_v01.blend
             artifacts/test_report.json
-            artifacts/ffprobe.json
+            artifacts/animatic_ffprobe.json
+            artifacts/proof_ffprobe.json
+            artifacts/dialogue_en.txt
+            artifacts/README_vi.md
             artifacts/check_frames/*.png
             blender.log
