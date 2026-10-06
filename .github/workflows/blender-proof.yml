@@ -1,0 +1,70 @@
+name: Blender Proof
+
+on:
+  push:
+    branches: [blender-proof]
+  workflow_dispatch:
+
+jobs:
+  render:
+    runs-on: ubuntu-latest
+    timeout-minutes: 30
+
+    steps:
+      - name: Checkout
+        uses: actions/checkout@v4
+
+      - name: Download Blender 5.2.2
+        run: |
+          curl -fL --retry 3 -o blender.tar.xz https://download.blender.org/release/Blender5.2/blender-5.2.2-linux-x64.tar.xz
+          tar -xf blender.tar.xz
+          ./blender-5.2.2-linux-x64/blender --version
+
+      - name: Render proof scene
+        run: |
+          ./blender-5.2.2-linux-x64/blender --background --python blender_proof.py | tee blender.log
+          grep -q BLENDER_PROOF_PASS blender.log
+
+      - name: Verify video
+        run: |
+          test -s artifacts/preview.mp4
+          test -s artifacts/preview.blend
+          test -s artifacts/test_report.json
+          ffprobe -v error \
+            -show_entries stream=width,height,nb_frames,r_frame_rate \
+            -show_entries format=duration,size \
+            -of json artifacts/preview.mp4 | tee artifacts/ffprobe.json
+          python3 - <<'PY'
+          import json
+          from pathlib import Path
+
+          report = json.loads(Path('artifacts/test_report.json').read_text())
+          probe = json.loads(Path('artifacts/ffprobe.json').read_text())
+          stream = probe['streams'][0]
+          duration = float(probe['format']['duration'])
+
+          assert report['blender_version'].startswith('5.2.2'), report
+          assert report['resolution'] == [360, 640], report
+          assert report['frame_end'] - report['frame_start'] + 1 == 48, report
+          assert report['fps'] == 24, report
+          assert report['car_count'] == 6, report
+          assert report['npc_count'] == 12, report
+          assert report['camera'] == 'Camera_Main', report
+          assert report['video_exists'] is True, report
+          assert report['video_size_bytes'] > 1000, report
+          assert int(stream['width']) == 360, stream
+          assert int(stream['height']) == 640, stream
+          assert 1.8 <= duration <= 2.2, duration
+          print('FFPROBE_PROOF_PASS')
+          PY
+
+      - name: Upload proof artifacts
+        uses: actions/upload-artifact@v4
+        with:
+          name: blender-proof-output
+          path: |
+            artifacts/preview.mp4
+            artifacts/preview.blend
+            artifacts/test_report.json
+            artifacts/ffprobe.json
+            blender.log
