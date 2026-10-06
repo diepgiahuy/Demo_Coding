@@ -1,0 +1,92 @@
+name: Outbreak Proof 12s
+
+on:
+  push:
+    branches: [outbreak-proof-12s-v1]
+  workflow_dispatch:
+
+permissions:
+  actions: read
+  contents: read
+
+jobs:
+  proof:
+    runs-on: ubuntu-latest
+    timeout-minutes: 25
+    env:
+      GH_TOKEN: ${{ github.token }}
+      OUT_DIR: ${{ github.workspace }}/outbreak_proof_output
+    steps:
+      - name: Checkout proof script
+        uses: actions/checkout@v4
+
+      - name: Install runtime libraries
+        run: |
+          sudo apt-get update -qq
+          sudo apt-get install -y -qq ffmpeg unzip xz-utils libegl1 libgl1 libx11-xcb1 libxcb1 libxkbcommon0
+
+      - name: Download cached Blender 5.2.2 artifact
+        run: |
+          curl -fL \
+            -H "Authorization: Bearer ${GH_TOKEN}" \
+            -H "Accept: application/vnd.github+json" \
+            -H "X-GitHub-Api-Version: 2022-11-28" \
+            "https://api.github.com/repos/${GITHUB_REPOSITORY}/actions/artifacts/11423740005/zip" \
+            -o blender_artifact.zip
+          mkdir blender_artifact
+          unzip -q blender_artifact.zip -d blender_artifact
+          BLENDER_ARCHIVE=$(find blender_artifact -type f -name '*.tar.xz' | head -1)
+          test -n "$BLENDER_ARCHIVE"
+          tar -xf "$BLENDER_ARCHIVE"
+          BLENDER_BIN=$(find "$PWD" -type f -path '*/blender-5.2.2-linux-x64/blender' | head -1)
+          test -x "$BLENDER_BIN"
+          echo "BLENDER_BIN=$BLENDER_BIN" >> "$GITHUB_ENV"
+          "$BLENDER_BIN" --version | head -2
+
+      - name: Download proven Cinematic City V2 base
+        run: |
+          curl -fL \
+            -H "Authorization: Bearer ${GH_TOKEN}" \
+            -H "Accept: application/vnd.github+json" \
+            -H "X-GitHub-Api-Version: 2022-11-28" \
+            "https://api.github.com/repos/${GITHUB_REPOSITORY}/actions/artifacts/11402506561/zip" \
+            -o city_base.zip
+          mkdir city_base
+          unzip -q city_base.zip -d city_base
+          BASE_BLEND=$(find city_base -type f -name 'CinematicCity_Proof_v2.blend' | head -1)
+          test -n "$BASE_BLEND"
+          echo "BASE_BLEND=$BASE_BLEND" >> "$GITHUB_ENV"
+          ls -lh "$BASE_BLEND"
+
+      - name: Build proof and render sampled motion preview
+        run: |
+          mkdir -p "$OUT_DIR"
+          "$BLENDER_BIN" "$BASE_BLEND" --background --python outbreak_proof_12s.py
+
+      - name: Encode 12 second preview
+        run: |
+          ffmpeg -y -framerate 10 \
+            -i "$OUT_DIR/frames/frame_%04d.png" \
+            -c:v libx264 -preset fast -crf 22 -pix_fmt yuv420p -movflags +faststart \
+            "$OUT_DIR/OUTBREAK_PROOF_12S_preview.mp4"
+          ffprobe -v error -show_entries format=duration,size -show_entries stream=width,height,r_frame_rate,nb_frames -of json \
+            "$OUT_DIR/OUTBREAK_PROOF_12S_preview.mp4" > "$OUT_DIR/ffprobe.json"
+          cat "$OUT_DIR/ffprobe.json"
+
+      - name: Validate outputs
+        run: |
+          test -s "$OUT_DIR/OUTBREAK_PROOF_12S.blend"
+          test -s "$OUT_DIR/OUTBREAK_PROOF_12S_preview.mp4"
+          test -s "$OUT_DIR/qa/coercion.png"
+          test -s "$OUT_DIR/qa/barrier_push.png"
+          test -s "$OUT_DIR/qa/stalled_street.png"
+          test -s "$OUT_DIR/report.json"
+
+      - name: Upload proof artifact
+        if: always()
+        uses: actions/upload-artifact@v4
+        with:
+          name: outbreak-proof-12s
+          path: outbreak_proof_output/
+          if-no-files-found: warn
+          retention-days: 30
