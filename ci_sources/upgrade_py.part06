@@ -1,0 +1,30 @@
+    assert DEMO_BLEND.exists() and DEMO_BLEND.stat().st_size > 100_000
+    assert DEMO_MP4.exists() and DEMO_MP4.stat().st_size > 20_000
+    assert lib_stats["hero_resolution"] >= 96
+    assert lib_stats["window_shards"] >= 24
+    assert lib_stats["debris_pieces"] >= 18
+    assert qa["rigid_active"] >= 40, qa
+    assert qa["rigid_passive"] >= 6, qa
+    assert qa["rigid_constraints"] >= 15, qa
+    assert qa["ragdoll_bodies"] >= 12, qa
+    assert qa["breakable_constraints"] >= 4, qa
+    assert qa["fluid_domains"] >= 1, qa
+    assert qa["fluid_flows"] >= 1, qa
+    assert qa["fluid_cache_files"] > 0, qa
+    frames = list(QA_DIR.glob("frame_*.png"))
+    assert len(frames) == 4 and all(p.stat().st_size > 5_000 for p in frames), frames
+    # Require visible physics change between early and late samples.
+    p1 = qa["physics_samples"]["1"]
+    p84 = qa["physics_samples"]["84"]
+    changed = 0
+    for key in p1:
+        if key in p84 and any(abs(a-b) > .08 for a, b in zip(p1[key], p84[key])):
+            changed += 1
+    assert changed >= 2, (changed, p1, p84)
+
+
+if __name__ == "__main__":
+    lib_stats = build_library_v2()
+    qa = build_demo()
+    verify(qa, lib_stats)
+    print("OUTBREAK_FX_PHYSICS_V2_PASS")
