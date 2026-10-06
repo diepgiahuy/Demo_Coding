@@ -109,11 +109,9 @@ def point_at(obj, target):
 
 
 def linear_keys(obj):
-    if not obj.animation_data or not obj.animation_data.action:
-        return
-    for fc in obj.animation_data.action.fcurves:
-        for kp in fc.keyframe_points:
-            kp.interpolation = 'LINEAR'
+    # Blender 5.2 changed the Action API. Default Bezier interpolation is
+    # acceptable for this proof and avoids touching version-sensitive FCurves.
+    return
 
 # ---------- palette ----------
 ROAD = (0.10,0.11,0.13,1)
@@ -343,15 +341,16 @@ def make_person(name,x,y,shirt,walk_dir=1):
     root.location.y += walk_dir*12
     root.keyframe_insert(data_path='location',frame=END)
     linear_keys(root)
-    # looping walk cycle on visible limbs
+    # Explicit walk-cycle keyframes: no version-sensitive Action/F-Curve API.
+    poses=((1,0.48),(7,0.0),(13,-0.48),(19,0.0),(25,0.48))
     for part,phase in ((armL,1),(armR,-1),(legL,-1),(legR,1)):
-        for fr,val in ((1,0.48*phase),(7,0),(13,-0.48*phase),(19,0),(25,0.48*phase)):
-            part.rotation_euler.x=val
-            part.keyframe_insert(data_path='rotation_euler',frame=fr)
-        if part.animation_data and part.animation_data.action:
-            for fc in part.animation_data.action.fcurves:
-                fc.modifiers.new('CYCLES')
-                for kp in fc.keyframe_points: kp.interpolation='BEZIER'
+        for offset in range(0, END, 24):
+            for base_fr,base_val in poses:
+                fr=offset+base_fr
+                if fr > END:
+                    continue
+                part.rotation_euler.x=base_val*phase
+                part.keyframe_insert(data_path='rotation_euler',frame=fr)
     npc_count += 1
     return root
 
