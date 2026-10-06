@@ -1,0 +1,89 @@
+name: Outbreak FX Physics v2 proof
+
+on:
+  push:
+    branches: [outbreak-fx-physics-v2]
+    paths:
+      - .github/workflows/outbreak-fx-physics-v2.yml
+  workflow_dispatch:
+
+jobs:
+  build-and-prove:
+    runs-on: ubuntu-latest
+    timeout-minutes: 30
+
+    steps:
+      - name: Checkout
+        uses: actions/checkout@v4
+
+      - name: Install Blender runtime libraries
+        run: |
+          sudo apt-get update
+          sudo apt-get install -y libegl1 libgl1 libx11-xcb1 libxcb1 libxkbcommon0 ffmpeg
+
+      - name: Decode exact kit and v2 sources
+        run: |
+          base64 -d build_kit.py.gz.b64 | gzip -d > build_kit.py
+          base64 -d outbreak_fx_physics_v2.py.gz.b64 | gzip -d > outbreak_fx_physics_v2.py
+          python3 -m py_compile build_kit.py refine_vehicles.py outbreak_fx_physics_v2.py
+          python3 - <<'PY'
+          from pathlib import Path
+          p=Path('build_kit.py')
+          s=p.read_text()
+          marker="bpy.ops.wm.save_as_mainfile(filepath=str(OUT/'Outbreak_Asset_Library.blend'))"
+          i=s.index(marker)+len(marker)
+          p.write_text(s[:i]+"\nprint('KIT_BASE_COMPLETE')\n")
+          PY
+
+      - name: Download Blender 5.2.2
+        run: |
+          curl -fL --retry 3 -o blender.tar.xz https://download.blender.org/release/Blender5.2/blender-5.2.2-linux-x64.tar.xz
+          tar -xf blender.tar.xz
+          ./blender-5.2.2-linux-x64/blender --version
+
+      - name: Build exact v1 source library
+        run: |
+          ./blender-5.2.2-linux-x64/blender --background --factory-startup --python build_kit.py | tee build.log
+          grep -q KIT_BASE_COMPLETE build.log
+          test -s Outbreak_Asset_Library.blend
+
+      - name: Build and prove v2 physics
+        run: |
+          ./blender-5.2.2-linux-x64/blender --background --factory-startup --python outbreak_fx_physics_v2.py | tee physics.log
+          grep -q OUTBREAK_FX_PHYSICS_V2_PASS physics.log
+
+      - name: Verify artifacts
+        run: |
+          test -s Outbreak_Asset_Library_v2.blend
+          test -s Outbreak_Physics_Demo_v2.blend
+          test -s Outbreak_Physics_Demo_v2.mp4
+          test -s fx_physics_qa.json
+          test "$(find qa_frames_v2 -name 'frame_*.png' | wc -l)" -eq 4
+          ffprobe -v error -show_entries stream=width,height,nb_frames,r_frame_rate -show_entries format=duration,size -of json Outbreak_Physics_Demo_v2.mp4 > fx_physics_ffprobe.json
+          python3 - <<'PY'
+          import json
+          q=json.load(open('fx_physics_qa.json'))
+          f=json.load(open('fx_physics_ffprobe.json'))
+          s=f['streams'][0]
+          assert q['rigid_active'] >= 40, q
+          assert q['ragdoll_bodies'] >= 12, q
+          assert q['breakable_constraints'] >= 4, q
+          assert q['fluid_cache_files'] > 0, q
+          assert int(s['width']) == 640 and int(s['height']) == 360, s
+          assert 3.4 <= float(f['format']['duration']) <= 3.7, f
+          print('OUTBREAK_FX_PHYSICS_ARTIFACTS_PASS')
+          PY
+
+      - name: Upload v2 proof artifacts
+        uses: actions/upload-artifact@v4
+        with:
+          name: outbreak-fx-physics-v2
+          path: |
+            Outbreak_Asset_Library_v2.blend
+            Outbreak_Physics_Demo_v2.blend
+            Outbreak_Physics_Demo_v2.mp4
+            fx_physics_qa.json
+            fx_physics_ffprobe.json
+            qa_frames_v2/*.png
+            build.log
+            physics.log
