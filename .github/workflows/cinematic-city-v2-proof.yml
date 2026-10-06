@@ -1,0 +1,66 @@
+name: Cinematic City Pattern Proof V2
+
+on:
+  push:
+    branches: [cinematic-city-skill-proof-v2]
+  workflow_dispatch:
+
+jobs:
+  proof:
+    runs-on: ubuntu-latest
+    timeout-minutes: 10
+    steps:
+      - name: Checkout
+        uses: actions/checkout@v4
+
+      - name: Prove pure Python city plan
+        run: |
+          python3 -m py_compile city_plan.py cinematic_city_proof_v2.py
+          python3 city_plan.py
+
+      - name: Install Blender headless runtime
+        run: |
+          sudo apt-get update
+          sudo apt-get install -y libegl1 libgl1 libx11-xcb1 libxcb1 libxkbcommon0
+
+      - name: Download Blender 5.2.2
+        run: |
+          curl -fL --retry 3 -o blender.tar.xz https://download.blender.org/release/Blender5.2/blender-5.2.2-linux-x64.tar.xz
+          tar -xf blender.tar.xz
+          ./blender-5.2.2-linux-x64/blender --version
+
+      - name: Build city and render QA stills
+        run: |
+          ./blender-5.2.2-linux-x64/blender --background --python cinematic_city_proof_v2.py | tee blender.log
+          grep -q CINEMATIC_CITY_V2_TECHNICAL_PASS blender.log
+
+      - name: Verify proof files
+        run: |
+          test -s proof_v2_artifacts/CinematicCity_Proof_v2.blend
+          test -s proof_v2_artifacts/proof_report.json
+          test -s proof_v2_artifacts/qa/frame_01.png
+          test -s proof_v2_artifacts/qa/frame_02.png
+          test -s proof_v2_artifacts/qa/frame_03.png
+          python3 - <<'PY'
+          import json
+          from pathlib import Path
+          r=json.loads(Path('proof_v2_artifacts/proof_report.json').read_text())
+          assert r['ok'] is True, r
+          assert r['block_count']==42 and r['parcel_count']==84 and r['building_count']==84, r
+          assert r['empty_parcels']==0 and r['overflow_count']==0, r
+          assert r['waterfront_objects']==0, r
+          assert r['engine']=='BLENDER_EEVEE', r
+          assert r['window_batch_objects']<=2, r
+          assert r['object_count']<650, r
+          assert len(r['qa_frames'])==3, r
+          print('V2_STRUCTURAL_AND_OUTPUT_PASS')
+          PY
+
+      - name: Upload proof artifacts
+        if: always()
+        uses: actions/upload-artifact@v4
+        with:
+          name: cinematic-city-v2-proof
+          path: |
+            proof_v2_artifacts/
+            blender.log
