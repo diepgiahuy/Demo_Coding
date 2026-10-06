@@ -1,0 +1,66 @@
+name: Cinematic City Pattern Proof
+
+on:
+  push:
+    branches: [cinematic-city-skill-proof]
+  workflow_dispatch:
+
+jobs:
+  render:
+    runs-on: ubuntu-latest
+    timeout-minutes: 20
+    steps:
+      - name: Checkout
+        uses: actions/checkout@v4
+
+      - name: Static Python check
+        run: python3 -m py_compile cinematic_city_proof.py
+
+      - name: Install Blender runtime libraries
+        run: |
+          sudo apt-get update
+          sudo apt-get install -y libegl1 libgl1 libx11-xcb1 libxcb1 libxkbcommon0 ffmpeg
+
+      - name: Download Blender 5.2.2
+        run: |
+          curl -fL --retry 3 -o blender.tar.xz https://download.blender.org/release/Blender5.2/blender-5.2.2-linux-x64.tar.xz
+          tar -xf blender.tar.xz
+          ./blender-5.2.2-linux-x64/blender --version
+
+      - name: Build and render proof
+        run: |
+          ./blender-5.2.2-linux-x64/blender --background --python cinematic_city_proof.py | tee blender.log
+          grep -q CINEMATIC_CITY_PROOF_PASS blender.log
+
+      - name: Verify outputs
+        run: |
+          test -s proof_artifacts/CinematicCity_Proof.mp4
+          test -s proof_artifacts/CinematicCity_Proof.blend
+          test -s proof_artifacts/proof_report.json
+          for f in proof_artifacts/qa/frame_01.png proof_artifacts/qa/frame_02.png proof_artifacts/qa/frame_03.png proof_artifacts/qa/frame_04.png; do test -s "$f"; done
+          ffprobe -v error -show_entries stream=width,height,nb_frames,r_frame_rate -show_entries format=duration,size -of json proof_artifacts/CinematicCity_Proof.mp4 | tee proof_artifacts/ffprobe.json
+          python3 - <<'PY'
+          import json
+          from pathlib import Path
+          r=json.loads(Path('proof_artifacts/proof_report.json').read_text())
+          p=json.loads(Path('proof_artifacts/ffprobe.json').read_text())
+          assert r['block_count']==42, r
+          assert r['parcel_count']==84, r
+          assert r['building_count']==84, r
+          assert r['empty_parcels']==0, r
+          assert r['parcel_overflow']==0, r
+          assert r['waterfront_objects']==0, r
+          assert r['camera_lens_mm']==58.0, r
+          assert r['engine']=='BLENDER_EEVEE', r
+          assert float(p['format']['duration']) >= 2.9, p
+          print('STRUCTURAL_PROOF_PASS')
+          PY
+
+      - name: Upload proof artifacts
+        if: always()
+        uses: actions/upload-artifact@v4
+        with:
+          name: cinematic-city-pattern-proof
+          path: |
+            proof_artifacts/
+            blender.log
