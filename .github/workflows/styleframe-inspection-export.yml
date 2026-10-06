@@ -16,10 +16,8 @@ jobs:
       - name: Checkout branch
         uses: actions/checkout@v4
 
-      - name: Install tiny image-to-PDF dependency
-        run: |
-          sudo apt-get update -qq
-          sudo apt-get install -y -qq unzip python3-pil
+      - name: Install unzip
+        run: sudo apt-get update -qq && sudo apt-get install -y -qq unzip
 
       - name: Download already-rendered style-frame artifact
         env:
@@ -35,22 +33,14 @@ jobs:
           mkdir inspect_artifact
           unzip -q styleframe.zip -d inspect_artifact
           test -s inspect_artifact/STYLEFRAME_1080x1920.png
+          test -s inspect_artifact/STYLEFRAME_360x640.png
+          cp inspect_artifact/STYLEFRAME_1080x1920.png STYLEFRAME_VISUAL_INSPECTION.png
+          cp inspect_artifact/STYLEFRAME_360x640.png STYLEFRAME_PHONE_INSPECTION.png
 
-      - name: Make inspection PDF without modifying image pixels
-        run: |
-          python3 - <<'PY'
-          from PIL import Image
-          src='inspect_artifact/STYLEFRAME_1080x1920.png'
-          out='STYLEFRAME_VISUAL_INSPECTION.pdf'
-          im=Image.open(src).convert('RGB')
-          im.save(out, 'PDF', resolution=144.0)
-          print(im.size)
-          PY
-
-      - name: Commit inspection PDF
+      - name: Commit exact rendered PNGs
         run: |
           git config user.name "github-actions[bot]"
           git config user.email "41898282+github-actions[bot]@users.noreply.github.com"
-          git add STYLEFRAME_VISUAL_INSPECTION.pdf
-          git commit -m "Add rendered style frame inspection PDF"
+          git add STYLEFRAME_VISUAL_INSPECTION.png STYLEFRAME_PHONE_INSPECTION.png
+          git commit -m "Add rendered PNGs for visual inspection"
           git push origin HEAD:outbreak-style-frame-v1
