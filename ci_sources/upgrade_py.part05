@@ -1,0 +1,120 @@
+    wall = cube("ImpactWall", (3.0, 3.85, 1.65), (4.2, .32, 3.3), wall_mat, demo, .04)
+    add_rigidbody(wall, "PASSIVE", shape="BOX", friction=.65)
+    win_col = bpy.data.collections.new("DEMO_WINDOW")
+    demo.children.link(win_col)
+    _, shards = make_window_asset(win_col, (3.0, 3.64, .62), physics=True)
+    projectile_mat = make_material("impact_ball_v2", (.12, .13, .14), .32, .5)
+    ball = sphere("Impact_Projectile", (3.0, 1.4, 1.78), .16, projectile_mat, demo, 2)
+    add_rigidbody(ball, "PASSIVE", shape="SPHERE", friction=.3, restitution=.15)
+    ball.location = (3.0, 1.4, 1.78)
+    ball.keyframe_insert("location", frame=45)
+    ball.location = (3.0, 4.7, 1.78)
+    ball.keyframe_insert("location", frame=58)
+    if ball.animation_data and ball.animation_data.action:
+        for fc in ball.animation_data.action.fcurves:
+            for kp in fc.keyframe_points:
+                kp.interpolation = "LINEAR"
+
+    # Mantaflow demo on the left, with a burnt vehicle behind it.
+    add_collection_instance("FX_BurntCar", demo, (-3.0, 1.1, .0), math.pi, .72, "BurntCar_Visual")
+    smoke_col = bpy.data.collections.new("DEMO_FIRE_SMOKE")
+    demo.children.link(smoke_col)
+    demo_domain, demo_emitter = make_fire_smoke(smoke_col, (-3.0, .55, 0), "DEMO_FireSmoke", demo=True)
+
+    # A small debris pile uses actual rigid bodies.
+    make_debris_asset(demo, (-2.2, -1.2, .05), 12, physics=True)
+
+    ensure_world_quality(scene, scene.frame_end)
+
+    # Lighting and camera.
+    sun = add_light(scene, "MoonSun", "SUN", (0, 0, 7), 2.4, rotation=(.55, -.38, -.55))
+    sun.data.angle = .18
+    key = add_light(scene, "KeyArea", "AREA", (2.5, -5.5, 8.5), 1300, 6.0)
+    key.rotation_euler = (Vector((0, 0, 1)) - key.location).to_track_quat("-Z", "Y").to_euler()
+    fill = add_light(scene, "FireFill", "AREA", (-3.2, .5, 3.2), 850, 3.0)
+    fill.data.color = (1.0, .31, .08)
+    fill.rotation_euler = (Vector((-2.5, 0, 1)) - fill.location).to_track_quat("-Z", "Y").to_euler()
+    camera_look_at(scene, (10.8, -13.2, 6.6), (.1, .5, 1.2), 52)
+
+    # Bake the low-resolution gas proof. The hero asset remains unbaked and uses Modular cache.
+    scene.frame_set(1)
+    select_only(demo_domain)
+    bpy.context.view_layer.update()
+    bake_result = bpy.ops.fluid.bake_all()
+
+    # Save the scene after the gas cache is available.
+    bpy.ops.wm.save_as_mainfile(filepath=str(DEMO_BLEND), compress=True)
+
+    # Sample rigid-body motion in strict forward order.
+    tracked = [barricade[-1], cones[0], next(iter(rag_proxies.values())), shards[len(shards)//2]]
+    transforms = {}
+    for f in (1, 30, 44, 60, 84):
+        scene.frame_set(f)
+        bpy.context.view_layer.update()
+        transforms[str(f)] = {
+            o.name: [round(v, 4) for v in o.matrix_world.translation]
+            for o in tracked
+        }
+
+    # Render QA stills first.
+    scene.render.image_settings.file_format = "PNG"
+    for f in (1, 34, 54, 78):
+        scene.frame_set(f)
+        scene.render.filepath = str(QA_DIR / f"frame_{f:03d}.png")
+        bpy.ops.render.render(write_still=True)
+
+    # Render MP4 proof.
+    scene.render.image_settings.file_format = "FFMPEG"
+    scene.render.ffmpeg.format = "MPEG4"
+    scene.render.ffmpeg.codec = "H264"
+    scene.render.ffmpeg.constant_rate_factor = "MEDIUM"
+    scene.render.filepath = str(DEMO_MP4)
+    scene.frame_set(1)
+    bpy.ops.render.render(animation=True)
+
+    # Count real simulation systems.
+    active_rb = [o for o in scene.objects if o.rigid_body and o.rigid_body.type == "ACTIVE"]
+    passive_rb = [o for o in scene.objects if o.rigid_body and o.rigid_body.type == "PASSIVE"]
+    constraints = [o for o in scene.objects if o.rigid_body_constraint]
+    fluid_domains = []
+    fluid_flows = []
+    for o in scene.objects:
+        for m in o.modifiers:
+            if m.type != "FLUID":
+                continue
+            if m.fluid_type == "DOMAIN":
+                fluid_domains.append(o)
+            elif m.fluid_type == "FLOW":
+                fluid_flows.append(o)
+    cache_files = [p for p in (CACHE_ROOT / "demo_fire").rglob("*") if p.is_file()]
+    qa = {
+        "blender_version": bpy.app.version_string,
+        "scene": scene.name,
+        "frame_range": [scene.frame_start, scene.frame_end],
+        "fps": scene.render.fps,
+        "resolution": [scene.render.resolution_x, scene.render.resolution_y],
+        "rigid_active": len(active_rb),
+        "rigid_passive": len(passive_rb),
+        "rigid_constraints": len(constraints),
+        "ragdoll_bodies": len(rag_proxies),
+        "ragdoll_constraints": len(rag_constraints),
+        "breakable_constraints": sum(1 for o in constraints if o.rigid_body_constraint.use_breaking),
+        "window_shards": len(shards),
+        "fluid_domains": len(fluid_domains),
+        "fluid_flows": len(fluid_flows),
+        "fluid_bake_result": sorted(bake_result),
+        "fluid_cache_files": len(cache_files),
+        "physics_samples": transforms,
+        "outputs": {
+            "library": V2_LIBRARY.name,
+            "demo_blend": DEMO_BLEND.name,
+            "preview": DEMO_MP4.name,
+            "qa_frames": 4,
+        },
+    }
+    (OUT / "fx_physics_qa.json").write_text(json.dumps(qa, indent=2), encoding="utf-8")
+    return qa
+
+
+def verify(qa, lib_stats):
+    assert V2_LIBRARY.exists() and V2_LIBRARY.stat().st_size > 100_000
