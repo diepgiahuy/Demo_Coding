@@ -14,6 +14,11 @@ jobs:
       - name: Checkout
         uses: actions/checkout@v4
 
+      - name: Install Blender runtime libraries
+        run: |
+          sudo apt-get update
+          sudo apt-get install -y libegl1 libgl1 libx11-xcb1 libxcb1 libxkbcommon0
+
       - name: Download Blender 5.2.2
         run: |
           curl -fL --retry 3 -o blender.tar.xz https://download.blender.org/release/Blender5.2/blender-5.2.2-linux-x64.tar.xz
@@ -44,6 +49,9 @@ jobs:
           duration = float(probe['format']['duration'])
 
           assert report['blender_version'].startswith('5.2.2'), report
+          assert report['ffmpeg_supported'] is True, report
+          assert report['media_type'] == 'VIDEO', report
+          assert report['file_format'] == 'FFMPEG', report
           assert report['resolution'] == [360, 640], report
           assert report['frame_end'] - report['frame_start'] + 1 == 48, report
           assert report['fps'] == 24, report
