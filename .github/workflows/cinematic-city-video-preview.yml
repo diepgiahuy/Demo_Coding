@@ -1,0 +1,59 @@
+name: Cinematic City Video Preview
+
+on:
+  push:
+    branches: [cinematic-city-video-preview]
+  workflow_dispatch:
+
+jobs:
+  preview:
+    runs-on: ubuntu-latest
+    timeout-minutes: 15
+    permissions:
+      actions: read
+      contents: read
+    steps:
+      - name: Checkout
+        uses: actions/checkout@v4
+
+      - name: Download proven V2 blend artifact
+        env:
+          GH_TOKEN: ${{ github.token }}
+        run: |
+          gh --version
+          mkdir -p source_artifact
+          gh run download 37443721171 --repo diepgiahuy/Demo_Coding --name cinematic-city-v2-proof --dir source_artifact
+          find source_artifact -maxdepth 4 -type f -print
+          test -n "$(find source_artifact -name 'CinematicCity_Proof_v2.blend' -print -quit)"
+
+      - name: Install Blender runtime and ffmpeg
+        run: |
+          sudo apt-get update
+          sudo apt-get install -y libegl1 libgl1 libx11-xcb1 libxcb1 libxkbcommon0 ffmpeg
+
+      - name: Download Blender 5.2.2
+        run: |
+          curl -fL --retry 3 -o blender.tar.xz https://download.blender.org/release/Blender5.2/blender-5.2.2-linux-x64.tar.xz
+          tar -xf blender.tar.xz
+
+      - name: Render sampled motion frames
+        run: |
+          BLEND="$(find source_artifact -name 'CinematicCity_Proof_v2.blend' -print -quit)"
+          ./blender-5.2.2-linux-x64/blender --background "$BLEND" --python render_video_preview.py | tee video_render.log
+          grep -q VIDEO_FRAME_RENDER_PASS video_render.log
+          test "$(find video_preview_artifacts/frames -name 'frame_*.png' | wc -l)" -eq 16
+
+      - name: Encode MP4
+        run: |
+          ffmpeg -y -framerate 8 -i video_preview_artifacts/frames/frame_%03d.png -c:v libx264 -pix_fmt yuv420p -movflags +faststart video_preview_artifacts/CinematicCity_V2_Preview.mp4
+          ffprobe -v error -show_entries stream=width,height,r_frame_rate,nb_frames -show_entries format=duration,size -of json video_preview_artifacts/CinematicCity_V2_Preview.mp4 | tee video_preview_artifacts/ffprobe.json
+          test -s video_preview_artifacts/CinematicCity_V2_Preview.mp4
+
+      - name: Upload video preview
+        uses: actions/upload-artifact@v4
+        with:
+          name: cinematic-city-video-preview
+          path: |
+            video_preview_artifacts/CinematicCity_V2_Preview.mp4
+            video_preview_artifacts/ffprobe.json
+            video_render.log
