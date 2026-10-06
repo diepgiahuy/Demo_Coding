@@ -19,7 +19,7 @@ jobs:
       - name: Decode and verify exact sources
         run: |
           cat ci_sources/build.part* | base64 -d | gzip -d > build_kit.py
-          cat ci_sources/upgrade.part* | base64 -d | gzip -d > outbreak_fx_physics_v2.py
+          cat ci_sources/upgrade_py.part* > outbreak_fx_physics_v2.py
           echo '88e7e3d6e93b9398031c02abcb35b46bac115949b4bf3edd79272e28b2520034  build_kit.py' | sha256sum -c -
           echo '128337dadeeafa80f68f45f9d7b94a17a024f8d63e9cd644096ea0f331a082e7  outbreak_fx_physics_v2.py' | sha256sum -c -
           echo 'a86207551fcd845e3dec44184b7124a8a8d1ed76f95eb633c2dbc33831024ee9  refine_vehicles.py' | sha256sum -c -
