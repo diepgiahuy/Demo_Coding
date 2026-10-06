@@ -1,0 +1,121 @@
+                    [(xa, y0, za), (xb, y0, za), (xa, y0, zb)],
+                    [(xb, y0, za), (xb, y0, zb), (xa, y0, zb)],
+                ]
+            for pts in tris:
+                sh = prism_triangle("GlassShard", pts, .035, glass, collection)
+                shards.append(sh)
+                if physics:
+                    rb = add_rigidbody(sh, "ACTIVE", mass=.035, shape="CONVEX_HULL",
+                                       friction=.12, restitution=.08, start_deactivated=True, margin=.003)
+                    rb.linear_damping = .02
+                    rb.angular_damping = .04
+    return frame, shards
+
+
+def make_debris_asset(collection, origin=(0, 0, 0), count=18, physics=True):
+    mats = [
+        make_material("debris_concrete_v2", (.34, .33, .30), .82),
+        make_material("debris_brick_v2", (.31, .08, .045), .84),
+        make_material("debris_steel_v2", (.16, .18, .19), .45, .5),
+    ]
+    out = []
+    for i in range(count):
+        sx = random.uniform(.08, .28)
+        sy = random.uniform(.08, .25)
+        sz = random.uniform(.05, .22)
+        obj = cube(f"Debris_{i:02d}",
+                   (origin[0] + random.uniform(-.45, .45),
+                    origin[1] + random.uniform(-.4, .4),
+                    origin[2] + random.uniform(.18, .8)),
+                   (sx, sy, sz), random.choice(mats), collection, .01)
+        obj.rotation_euler = (random.uniform(-1, 1), random.uniform(-1, 1), random.uniform(-1, 1))
+        if physics:
+            add_rigidbody(obj, "ACTIVE", mass=random.uniform(.1, 1.1), shape="BOX",
+                          friction=.65, restitution=.08, start_deactivated=False, margin=.004)
+        out.append(obj)
+    return out
+
+
+def mark_collection_asset(col, catalog="FX", description=""):
+    col.asset_mark()
+    col.asset_data.catalog_id = str(uuid.uuid5(uuid.NAMESPACE_DNS, "outbreakkit/" + catalog))
+    col.asset_data.description = description
+    col["kit_version"] = "2.0"
+    col["physics_warning"] = "Append editable collection. Collection instances do not provide editable simulation controls."
+
+
+def build_library_v2():
+    if not BASE_LIBRARY.exists():
+        raise FileNotFoundError(BASE_LIBRARY)
+    bpy.ops.wm.open_mainfile(filepath=str(BASE_LIBRARY))
+    lib = bpy.data.collections.get("LIBRARY_SOURCE_DO_NOT_MOVE")
+    if lib is None:
+        lib = bpy.data.collections.new("LIBRARY_SOURCE_DO_NOT_MOVE")
+        bpy.context.scene.collection.children.link(lib)
+
+    # Remove prior v2 assets when the script is rerun.
+    for name in ["FX_FireSmoke_Hero", "FX_BrokenWindow_Physics", "FX_ImpactDebris_Physics"]:
+        old = bpy.data.collections.get(name)
+        if old:
+            bpy.data.collections.remove(old)
+
+    # Build new simulation assets in visible root collections.
+    # The v1 source library collection is excluded from the active View Layer.
+    # Blender operators cannot select objects inside an excluded collection.
+    fire_col = bpy.data.collections.new("FX_FireSmoke_Hero")
+    bpy.context.scene.collection.children.link(fire_col)
+    domain, emitter = make_fire_smoke(fire_col, (0, 0, 0), "FX_FireSmoke_Hero", demo=False)
+    mark_collection_asset(
+        fire_col, "FX",
+        "Mantaflow fire+smoke hero preset. 96 base resolution, adaptive gas domain, noise x2, OpenVDB Modular cache."
+    )
+    fire_col["recommended_render"] = "Eevee for drafts; Cycles for final hero shots."
+
+    window_col = bpy.data.collections.new("FX_BrokenWindow_Physics")
+    bpy.context.scene.collection.children.link(window_col)
+    _, shards = make_window_asset(window_col, physics=True)
+    mark_collection_asset(
+        window_col, "FX",
+        "Pre-fractured window with active rigid-body shards and passive frame. Shards start deactivated until impact."
+    )
+    window_col["rigid_shards"] = len(shards)
+
+    debris_col = bpy.data.collections.new("FX_ImpactDebris_Physics")
+    bpy.context.scene.collection.children.link(debris_col)
+    debris = make_debris_asset(debris_col, count=22, physics=True)
+    mark_collection_asset(
+        debris_col, "FX",
+        "Rigid-body debris burst source. Use a collider or force field to drive motion; pieces use mass and damping."
+    )
+    debris_col["rigid_debris"] = len(debris)
+
+    # Move completed v2 assets under the source library after operators finish.
+    for col in (fire_col, window_col, debris_col):
+        try:
+            lib.children.link(col)
+        except RuntimeError:
+            pass
+        try:
+            bpy.context.scene.collection.children.unlink(col)
+        except RuntimeError:
+            pass
+
+    # Update source library metadata without overwriting v1.
+    bpy.context.scene["KIT_V2_FX"] = "Mantaflow + rigid glass + rigid debris. Physics assets require Append, not instance."
+    bpy.ops.wm.save_as_mainfile(filepath=str(V2_LIBRARY), compress=True)
+    return {
+        "hero_domain": domain.name,
+        "hero_resolution": next(
+            m.domain_settings.resolution_max
+            for m in domain.modifiers
+            if m.type == "FLUID" and m.fluid_type == "DOMAIN"
+        ),
+        "window_shards": len(shards),
+        "debris_pieces": len(debris),
+    }
+
+
+def add_collection_instance(source_name, collection, loc, rot=0.0, scale=1.0, name=None):
+    src = bpy.data.collections.get(source_name)
+    if src is None:
+        raise KeyError(source_name)
