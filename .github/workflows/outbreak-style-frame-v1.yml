@@ -1,0 +1,88 @@
+name: Outbreak Style Frame V1
+
+on:
+  push:
+    branches: [outbreak-style-frame-v1]
+    paths:
+      - 'outbreak_style_frame_v1.py'
+      - '.github/workflows/outbreak-style-frame-v1.yml'
+
+jobs:
+  styleframe:
+    runs-on: ubuntu-24.04
+    timeout-minutes: 30
+    permissions:
+      contents: read
+      actions: read
+    env:
+      OUT_DIR: ${{ github.workspace }}/styleframe_output
+      LIBGL_ALWAYS_SOFTWARE: '1'
+      MESA_GL_VERSION_OVERRIDE: '4.5'
+    steps:
+      - name: Checkout style-frame branch
+        uses: actions/checkout@v4
+
+      - name: Install Blender runtime libraries
+        run: |
+          sudo apt-get update -qq
+          sudo apt-get install -y -qq unzip xz-utils libegl1 libgl1 libx11-xcb1 libxcb1 libxkbcommon0 mesa-utils
+
+      - name: Download cached Blender 5.2.2
+        env:
+          GH_TOKEN: ${{ github.token }}
+        run: |
+          curl -fL \
+            -H "Authorization: Bearer ${GH_TOKEN}" \
+            -H "Accept: application/vnd.github+json" \
+            -H "X-GitHub-Api-Version: 2022-11-28" \
+            "https://api.github.com/repos/${GITHUB_REPOSITORY}/actions/artifacts/11423740005/zip" \
+            -o blender_artifact.zip
+          mkdir blender_artifact
+          unzip -q blender_artifact.zip -d blender_artifact
+          BLENDER_ARCHIVE=$(find blender_artifact -type f -name '*.tar.xz' | head -1)
+          test -n "$BLENDER_ARCHIVE"
+          tar -xf "$BLENDER_ARCHIVE"
+          BLENDER_BIN=$(find "$PWD" -type f -path '*/blender-5.2.2-linux-x64/blender' | head -1)
+          test -x "$BLENDER_BIN"
+          echo "BLENDER_BIN=$BLENDER_BIN" >> "$GITHUB_ENV"
+          "$BLENDER_BIN" --version | head -2
+
+      - name: Download verified CC0 low-poly assets
+        run: |
+          mkdir -p styleframe_assets
+          BASE="https://raw.githubusercontent.com/Hidencod/tge-assets/main/packs"
+          curl -fL "$BASE/city-kit-commercial/building-a.glb" -o styleframe_assets/building-a.glb
+          curl -fL "$BASE/city-kit-commercial/building-e.glb" -o styleframe_assets/building-e.glb
+          curl -fL "$BASE/city-kit-commercial/building-j.glb" -o styleframe_assets/building-j.glb
+          curl -fL "$BASE/car-kit/sedan.glb" -o styleframe_assets/sedan.glb
+          curl -fL "$BASE/car-kit/police.glb" -o styleframe_assets/police.glb
+          curl -fL "$BASE/car-kit/taxi.glb" -o styleframe_assets/taxi.glb
+          curl -fL "$BASE/city-kit-roads/traffic-light.glb" -o styleframe_assets/traffic-light.glb
+          curl -fL "$BASE/city-kit-roads/light-curved.glb" -o styleframe_assets/light-curved.glb
+          curl -fL "$BASE/blocky-characters/character-a.glb" -o styleframe_assets/character-a.glb
+          curl -fL "$BASE/blocky-characters/character-b.glb" -o styleframe_assets/character-b.glb
+          curl -fL "$BASE/blocky-characters/character-c.glb" -o styleframe_assets/character-c.glb
+          curl -fL "$BASE/blocky-characters/character-d.glb" -o styleframe_assets/character-d.glb
+          ls -lh styleframe_assets
+
+      - name: Build scene and render Eevee style frame
+        run: |
+          mkdir -p "$OUT_DIR"
+          "$BLENDER_BIN" --background --python outbreak_style_frame_v1.py
+
+      - name: Validate exact deliverables
+        run: |
+          test -s "$OUT_DIR/STYLEFRAME_1080x1920.png"
+          test -s "$OUT_DIR/STYLEFRAME_360x640.png"
+          test -s "$OUT_DIR/OUTBREAK_STYLEFRAME_V1.blend"
+          test -s "$OUT_DIR/report.json"
+          ffprobe -v error -select_streams v:0 -show_entries stream=width,height -of csv=s=x:p=0 "$OUT_DIR/STYLEFRAME_1080x1920.png" | grep -q '^1080x1920$'
+          ffprobe -v error -select_streams v:0 -show_entries stream=width,height -of csv=s=x:p=0 "$OUT_DIR/STYLEFRAME_360x640.png" | grep -q '^360x640$'
+          cat "$OUT_DIR/report.json"
+
+      - name: Upload style frame artifact
+        uses: actions/upload-artifact@v4
+        with:
+          name: outbreak-style-frame-v1
+          path: styleframe_output/
+          retention-days: 30
