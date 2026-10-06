@@ -1,0 +1,164 @@
+"""Outbreak Kit v2 FX and physics upgrade.
+
+Run after build_kit.py:
+    blender --background --python outbreak_fx_physics_v2.py
+
+The script creates:
+- Outbreak_Asset_Library_v2.blend with hero gas, rigid-window, and debris assets.
+- Outbreak_Physics_Demo_v2.blend with rigid-body collision, breakable joints,
+  a character ragdoll, a breakable window, and a low-resolution Mantaflow proof.
+- Outbreak_Physics_Demo_v2.mp4 and QA stills.
+- fx_physics_qa.json.
+"""
+from __future__ import annotations
+
+import bpy
+import json
+import math
+import os
+import random
+import uuid
+from pathlib import Path
+from mathutils import Vector, Matrix
+
+random.seed(2707)
+OUT = Path(__file__).resolve().parent
+BASE_LIBRARY = OUT / "Outbreak_Asset_Library.blend"
+V2_LIBRARY = OUT / "Outbreak_Asset_Library_v2.blend"
+DEMO_BLEND = OUT / "Outbreak_Physics_Demo_v2.blend"
+DEMO_MP4 = OUT / "Outbreak_Physics_Demo_v2.mp4"
+CACHE_ROOT = OUT / "cache_v2"
+QA_DIR = OUT / "qa_frames_v2"
+CACHE_ROOT.mkdir(exist_ok=True)
+QA_DIR.mkdir(exist_ok=True)
+
+
+def select_only(obj):
+    bpy.ops.object.select_all(action="DESELECT")
+    obj.hide_set(False)
+    obj.select_set(True)
+    bpy.context.view_layer.objects.active = obj
+
+
+def link_obj(obj, collection):
+    for c in list(obj.users_collection):
+        c.objects.unlink(obj)
+    collection.objects.link(obj)
+    return obj
+
+
+def make_material(name, color, rough=0.6, metal=0.0, emission=0.0):
+    mat = bpy.data.materials.get(name) or bpy.data.materials.new(name)
+    mat.diffuse_color = (*color, 1.0)
+    mat.use_nodes = True
+    bsdf = mat.node_tree.nodes.get("Principled BSDF")
+    if bsdf:
+        bsdf.inputs["Base Color"].default_value = (*color, 1.0)
+        bsdf.inputs["Roughness"].default_value = rough
+        bsdf.inputs["Metallic"].default_value = metal
+        if emission:
+            if "Emission Color" in bsdf.inputs:
+                bsdf.inputs["Emission Color"].default_value = (*color, 1.0)
+            if "Emission Strength" in bsdf.inputs:
+                bsdf.inputs["Emission Strength"].default_value = emission
+    return mat
+
+
+def cube(name, loc, dims, mat=None, collection=None, bevel=0.0):
+    bpy.ops.mesh.primitive_cube_add(size=1.0, location=loc)
+    obj = bpy.context.object
+    obj.name = name
+    obj.dimensions = dims
+    bpy.ops.object.transform_apply(location=False, rotation=False, scale=True)
+    if mat:
+        obj.data.materials.append(mat)
+    if bevel:
+        mod = obj.modifiers.new("EdgeBevel", "BEVEL")
+        mod.width = bevel
+        mod.segments = 1
+    if collection:
+        link_obj(obj, collection)
+    return obj
+
+
+def sphere(name, loc, radius, mat=None, collection=None, subdivisions=2):
+    bpy.ops.mesh.primitive_ico_sphere_add(subdivisions=subdivisions, radius=radius, location=loc)
+    obj = bpy.context.object
+    obj.name = name
+    if mat:
+        obj.data.materials.append(mat)
+    if collection:
+        link_obj(obj, collection)
+    return obj
+
+
+def prism_triangle(name, pts, thickness, mat, collection):
+    # pts are XYZ coordinates on the front plane. Extrude in Y.
+    half = thickness * 0.5
+    verts = []
+    for p in pts:
+        verts.append((p[0], p[1] - half, p[2]))
+    for p in pts:
+        verts.append((p[0], p[1] + half, p[2]))
+    faces = [
+        (0, 1, 2), (5, 4, 3),
+        (0, 3, 4, 1), (1, 4, 5, 2), (2, 5, 3, 0),
+    ]
+    mesh = bpy.data.meshes.new(name + "_Mesh")
+    mesh.from_pydata(verts, [], faces)
+    mesh.update()
+    obj = bpy.data.objects.new(name, mesh)
+    collection.objects.link(obj)
+    obj.data.materials.append(mat)
+    return obj
+
+
+def add_rigidbody(obj, rb_type="ACTIVE", mass=1.0, shape="BOX", friction=0.5,
+                  restitution=0.05, start_deactivated=False, margin=0.01):
+    select_only(obj)
+    bpy.ops.rigidbody.object_add()
+    rb = obj.rigid_body
+    rb.type = rb_type
+    rb.mass = mass
+    rb.collision_shape = shape
+    rb.friction = friction
+    rb.restitution = restitution
+    rb.use_margin = True
+    rb.collision_margin = margin
+    if rb_type == "ACTIVE":
+        rb.use_deactivation = True
+        rb.use_start_deactivated = start_deactivated
+        rb.linear_damping = 0.08
+        rb.angular_damping = 0.12
+    return rb
+
+
+def add_constraint(name, loc, a, b, collection, kind="FIXED", breakable=False,
+                   threshold=10.0, angular_limits=None):
+    obj = bpy.data.objects.new(name, None)
+    collection.objects.link(obj)
+    obj.location = loc
+    select_only(obj)
+    bpy.ops.rigidbody.constraint_add()
+    con = obj.rigid_body_constraint
+    con.type = kind
+    con.object1 = a
+    con.object2 = b
+    con.disable_collisions = True
+    con.solver_iterations = 30
+    if breakable:
+        con.use_breaking = True
+        con.breaking_threshold = threshold
+    if kind == "GENERIC":
+        con.use_limit_lin_x = True
+        con.use_limit_lin_y = True
+        con.use_limit_lin_z = True
+        con.limit_lin_x_lower = con.limit_lin_x_upper = 0.0
+        con.limit_lin_y_lower = con.limit_lin_y_upper = 0.0
+        con.limit_lin_z_lower = con.limit_lin_z_upper = 0.0
+        limits = angular_limits or ((-.4, .4), (-.4, .4), (-.4, .4))
+        con.use_limit_ang_x = True
+        con.use_limit_ang_y = True
+        con.use_limit_ang_z = True
+        con.limit_ang_x_lower, con.limit_ang_x_upper = limits[0]
+        con.limit_ang_y_lower, con.limit_ang_y_upper = limits[1]
