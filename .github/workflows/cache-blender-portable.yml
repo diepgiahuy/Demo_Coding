@@ -1,0 +1,23 @@
+name: Cache Blender Portable
+
+on:
+  push:
+    branches: [outbreak-v0-local-camera]
+  workflow_dispatch:
+
+jobs:
+  cache:
+    runs-on: ubuntu-latest
+    timeout-minutes: 8
+    steps:
+      - name: Download Blender 5.2.2 portable
+        run: |
+          curl -fL --retry 3 -o blender-5.2.2-linux-x64.tar.xz https://download.blender.org/release/Blender5.2/blender-5.2.2-linux-x64.tar.xz
+          test -s blender-5.2.2-linux-x64.tar.xz
+          ls -lh blender-5.2.2-linux-x64.tar.xz
+      - name: Upload portable archive
+        uses: actions/upload-artifact@v4
+        with:
+          name: blender-5.2.2-linux-x64
+          path: blender-5.2.2-linux-x64.tar.xz
+          compression-level: 0
