@@ -10,7 +10,6 @@ VIDEO = OUT / "preview.mp4"
 BLEND = OUT / "preview.blend"
 REPORT = OUT / "test_report.json"
 
-# Reset scene.
 bpy.ops.object.select_all(action="SELECT")
 bpy.ops.object.delete(use_global=False)
 
@@ -29,7 +28,6 @@ scene.render.ffmpeg.codec = "H264"
 scene.render.ffmpeg.constant_rate_factor = "MEDIUM"
 scene.render.filepath = str(VIDEO)
 
-# Workbench display settings.
 scene.display.shading.light = "STUDIO"
 scene.display.shading.color_type = "OBJECT"
 scene.display.shading.show_shadows = True
@@ -60,41 +58,35 @@ def point_camera(obj, target):
     obj.rotation_euler = direction.to_track_quat("-Z", "Y").to_euler()
 
 
-# Base city block.
 add_cube("Ground", (0, 0, -0.35), (15, 22, 0.35), (0.20, 0.42, 0.18, 1.0))
 add_cube("Road_Main", (0, 0, 0.01), (3.2, 22, 0.04), (0.08, 0.08, 0.10, 1.0))
 add_cube("Road_Cross", (0, 0, 0.02), (15, 2.8, 0.04), (0.08, 0.08, 0.10, 1.0))
 
-# Sidewalks.
 for x in (-4.2, 4.2):
     add_cube(f"Sidewalk_{x}", (x, 0, 0.08), (0.8, 22, 0.08), (0.55, 0.55, 0.55, 1.0))
 
-# Lane markers.
 for y in range(-18, 19, 4):
     add_cube(f"Lane_{y}", (0, y, 0.09), (0.10, 1.2, 0.03), (0.95, 0.85, 0.15, 1.0))
 
-# Crosswalk.
 for x in (-2.4, -1.6, -0.8, 0.8, 1.6, 2.4):
     add_cube(f"Crosswalk_{x}", (x, 0, 0.10), (0.25, 2.2, 0.03), (0.95, 0.95, 0.95, 1.0))
 
-# Buildings, kept away from the camera path.
 building_colors = [
     (0.26, 0.47, 0.78, 1.0),
     (0.78, 0.34, 0.28, 1.0),
     (0.72, 0.62, 0.28, 1.0),
     (0.34, 0.62, 0.50, 1.0),
 ]
-for ix, x in enumerate((-11, -7, 7, 11)):
+for ix, x in enumerate((-12, -8, 8, 12)):
     for iy, y in enumerate((-16, -8, 8, 16)):
         h = 3.5 + ((ix + iy) % 4) * 1.8
         add_cube(
             f"Building_{ix}_{iy}",
             (x, y, h),
-            (2.2, 2.8, h),
+            (2.1, 2.6, h),
             building_colors[(ix + iy) % len(building_colors)],
         )
 
-# Cars.
 car_count = 8
 car_colors = [
     (0.90, 0.12, 0.10, 1.0),
@@ -116,7 +108,6 @@ for i in range(car_count):
     car.location.y = start_y + direction * 30
     car.keyframe_insert(data_path="location", frame=72)
 
-# NPCs with separate head/body objects.
 npc_count = 20
 for i in range(npc_count):
     side = -1 if i % 2 == 0 else 1
@@ -141,7 +132,6 @@ for i in range(npc_count):
         obj.location.y = start_y + direction * 12
         obj.keyframe_insert(data_path="location", frame=72)
 
-# Trees for clear depth cues.
 for x in (-5.6, 5.6):
     for y in (-15, -9, -3, 3, 9, 15):
         add_cylinder(f"TreeTrunk_{x}_{y}", (x, y, 0.65), 0.18, 1.3, (0.25, 0.12, 0.05, 1.0))
@@ -150,25 +140,24 @@ for x in (-5.6, 5.6):
         crown.name = f"TreeCrown_{x}_{y}"
         crown.color = (0.12, 0.55, 0.16, 1.0)
 
-# Camera stays outside all geometry and performs a small dolly.
-bpy.ops.object.camera_add(location=(30, -40, 30))
+# Camera looks straight down the avenue so cars and NPCs stay visible.
+bpy.ops.object.camera_add(location=(0, -26, 10.5))
 cam = bpy.context.object
 cam.name = "Camera_Main"
-cam.data.lens = 38
+cam.data.lens = 36
 cam.data.clip_start = 0.1
 cam.data.clip_end = 500
 scene.camera = cam
 
-point_camera(cam, (0, 1, 2.0))
+point_camera(cam, (0, 4, 1.6))
 cam.keyframe_insert(data_path="location", frame=1)
 cam.keyframe_insert(data_path="rotation_euler", frame=1)
 
-cam.location = (26, -34, 26)
-point_camera(cam, (0, 3, 2.0))
+cam.location = (0, -20, 8.5)
+point_camera(cam, (0, 6, 1.6))
 cam.keyframe_insert(data_path="location", frame=72)
 cam.keyframe_insert(data_path="rotation_euler", frame=72)
 
-# Save and render.
 bpy.ops.wm.save_as_mainfile(filepath=str(BLEND))
 bpy.ops.render.render(animation=True)
 
