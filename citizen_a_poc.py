@@ -134,7 +134,10 @@ def add_lights(lo, hi):
     center = (lo + hi) * 0.5
     height = max(0.5, hi.z - lo.z)
 
-    world = bpy.context.scene.world
+    scene = bpy.context.scene
+    if scene.world is None:
+        scene.world = bpy.data.worlds.new("Citizen_A_World")
+    world = scene.world
     world.use_nodes = True
     bg = world.node_tree.nodes.get("Background")
     if bg:
