@@ -64,13 +64,20 @@ jobs:
         run: |
           ./blender-5.2.2-linux-x64/blender --background --python citizen_a_poc.py | tee artifacts/citizen_a/blender.log
           grep -q CITIZEN_A_POC_PASS artifacts/citizen_a/blender.log
+          test -s artifacts/citizen_a/Citizen_A.blend
+          test -s artifacts/citizen_a/qc_report.json
+          test "$(find artifacts/citizen_a/frames -name 'frame_*.png' | wc -l)" -ge 45
+
+      - name: Encode preview video
+        run: |
+          ffmpeg -y -framerate 30 -pattern_type glob \
+            -i 'artifacts/citizen_a/frames/frame_*.png' \
+            -c:v libx264 -preset medium -crf 20 -pix_fmt yuv420p -movflags +faststart \
+            artifacts/citizen_a/Citizen_A_walk.mp4
+          test -s artifacts/citizen_a/Citizen_A_walk.mp4
 
       - name: Verify outputs
         run: |
-          test -s artifacts/citizen_a/Citizen_A.blend
-          test -s artifacts/citizen_a/Citizen_A_walk.mp4
-          test -s artifacts/citizen_a/qc_report.json
-
           ffprobe -v error \
             -show_entries stream=width,height,nb_frames,r_frame_rate \
             -show_entries format=duration,size \
