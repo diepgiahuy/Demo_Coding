@@ -17,8 +17,7 @@ jobs:
       - name: Install runtime packages
         run: |
           sudo apt-get update
-          sudo apt-get install -y libegl1 libgl1 libx11-xcb1 libxcb1 libxkbcommon0 ffmpeg unzip python3-pip
-          python3 -m pip install --user gdown
+          sudo apt-get install -y libegl1 libgl1 libx11-xcb1 libxcb1 libxkbcommon0 ffmpeg unzip
 
       - name: Download Blender 5.2.2
         run: |
@@ -26,31 +25,29 @@ jobs:
           tar -xf blender.tar.xz
           ./blender-5.2.2-linux-x64/blender --version
 
-      - name: Download official Quaternius packs
+      - name: Download exact Quaternius pack mirror
         run: |
           mkdir -p source_exact_packs/men source_exact_packs/women artifacts/animated_men_women
-          ~/.local/bin/gdown --folder 'https://drive.google.com/drive/folders/17LibivOaUidsQhSkcxP3YYvDr0n7wIwu' -O source_exact_packs/men
-          ~/.local/bin/gdown --folder 'https://drive.google.com/drive/folders/1c13R--fMqdR6r2MRlcKKsbPky0__T-yJ' -O source_exact_packs/women
+          curl -fL --retry 3 -o men.zip https://raw.githubusercontent.com/MRPT/mvsim-models/main/AnimatedMenCharacters.zip
+          curl -fL --retry 3 -o women.zip https://raw.githubusercontent.com/MRPT/mvsim-models/main/AnimatedWomenCharacters.zip
+          unzip -q men.zip -d source_exact_packs/men
+          unzip -q women.zip -d source_exact_packs/women
 
-      - name: Expand downloaded archives
+      - name: Verify exact source filenames
         run: |
-          python3 - <<'PY'
-          from pathlib import Path
-          import zipfile
-          root = Path('source_exact_packs')
-          for z in list(root.rglob('*.zip')):
-              out = z.with_suffix('')
-              out.mkdir(parents=True, exist_ok=True)
-              with zipfile.ZipFile(z) as f:
-                  f.extractall(out)
-          with open('artifacts/animated_men_women/source_tree.txt','w') as f:
-              for p in sorted(root.rglob('*')):
-                  if p.is_file():
-                      f.write(f'{p} | {p.stat().st_size}\n')
-          PY
-          cat artifacts/animated_men_women/source_tree.txt
-          test "$(find source_exact_packs/men -iname '*.blend' | wc -l)" -ge 1
-          test "$(find source_exact_packs/women -iname '*.blend' | wc -l)" -ge 1
+          for f in \
+            source_exact_packs/men/FBX/Male_Casual.fbx \
+            source_exact_packs/men/FBX/Male_LongSleeve.fbx \
+            source_exact_packs/men/FBX/Male_Shirt.fbx \
+            source_exact_packs/men/FBX/Male_Suit.fbx \
+            source_exact_packs/women/FBX/Female_Alternative.fbx \
+            source_exact_packs/women/FBX/Female_Casual.fbx \
+            source_exact_packs/women/FBX/Female_Dress.fbx \
+            source_exact_packs/women/FBX/Female_TankTop.fbx; do
+            test -s "$f"
+            echo "PASS $f $(stat -c%s "$f")"
+          done
+          find source_exact_packs -type f | sort > artifacts/animated_men_women/source_tree.txt
 
       - name: Build eight exact Blender proofs
         run: |
@@ -60,7 +57,9 @@ jobs:
 
       - name: Encode eight walk previews
         run: |
-          for d in Men_01 Men_02 Men_03 Men_04 Women_01 Women_02 Women_03 Women_04; do
+          for d in \
+            Men_Casual Men_LongSleeve Men_Shirt Men_Suit \
+            Women_Alternative Women_Casual Women_Dress Women_TankTop; do
             test -s "artifacts/animated_men_women/$d/$d.blend"
             test "$(find "artifacts/animated_men_women/$d/frames" -name 'frame_*.png' | wc -l)" -eq 33
             ffmpeg -y -framerate 30 -pattern_type glob \
@@ -72,14 +71,14 @@ jobs:
       - name: Build combined eight-person preview
         run: |
           ffmpeg -y \
-            -i artifacts/animated_men_women/Men_01/Men_01_walk.mp4 \
-            -i artifacts/animated_men_women/Men_02/Men_02_walk.mp4 \
-            -i artifacts/animated_men_women/Men_03/Men_03_walk.mp4 \
-            -i artifacts/animated_men_women/Men_04/Men_04_walk.mp4 \
-            -i artifacts/animated_men_women/Women_01/Women_01_walk.mp4 \
-            -i artifacts/animated_men_women/Women_02/Women_02_walk.mp4 \
-            -i artifacts/animated_men_women/Women_03/Women_03_walk.mp4 \
-            -i artifacts/animated_men_women/Women_04/Women_04_walk.mp4 \
+            -i artifacts/animated_men_women/Men_Casual/Men_Casual_walk.mp4 \
+            -i artifacts/animated_men_women/Men_LongSleeve/Men_LongSleeve_walk.mp4 \
+            -i artifacts/animated_men_women/Men_Shirt/Men_Shirt_walk.mp4 \
+            -i artifacts/animated_men_women/Men_Suit/Men_Suit_walk.mp4 \
+            -i artifacts/animated_men_women/Women_Alternative/Women_Alternative_walk.mp4 \
+            -i artifacts/animated_men_women/Women_Casual/Women_Casual_walk.mp4 \
+            -i artifacts/animated_men_women/Women_Dress/Women_Dress_walk.mp4 \
+            -i artifacts/animated_men_women/Women_TankTop/Women_TankTop_walk.mp4 \
             -filter_complex "[0:v][1:v][2:v][3:v][4:v][5:v][6:v][7:v]xstack=inputs=8:layout=0_0|300_0|600_0|900_0|0_450|300_450|600_450|900_450[v]" \
             -map "[v]" -c:v libx264 -preset medium -crf 18 -pix_fmt yuv420p -movflags +faststart \
             artifacts/animated_men_women/Animated_Men_Women_8_walk.mp4
@@ -96,19 +95,25 @@ jobs:
           report = json.loads((root/'qc_report.json').read_text())
           assert report['blender_version'].startswith('5.2.2'), report['blender_version']
           assert len(report['characters']) == 8, len(report['characters'])
-          assert report['packs']['Men']['armatures_with_mesh'] >= 4, report['packs']['Men']
-          assert report['packs']['Women']['armatures_with_mesh'] >= 4, report['packs']['Women']
+          assert sum(c['pack'] == 'Men' for c in report['characters']) == 4
+          assert sum(c['pack'] == 'Women' for c in report['characters']) == 4
           for c in report['characters']:
+              assert 'walk' in c['walk_action'].lower(), c
               assert c['bones'] >= 10, c
               assert c['meshes'] >= 1, c
               assert c['moving_limbs'] >= 2, c
-              p = root/c['name']/f"{c['name']}.blend"
-              assert p.stat().st_size > 100000, p
-          video = root/'Animated_Men_Women_8_walk.mp4'
-          out = subprocess.check_output(['ffprobe','-v','error','-select_streams','v:0','-show_entries','stream=width,height,nb_frames','-of','json',str(video)])
-          s = json.loads(out)['streams'][0]
-          assert int(s['width']) == 1200 and int(s['height']) == 900, s
-          assert int(s['nb_frames']) == 33, s
+              blend = root/c['name']/f"{c['name']}.blend"
+              video = root/c['name']/f"{c['name']}_walk.mp4"
+              assert blend.stat().st_size > 100000, blend
+              assert video.stat().st_size > 5000, video
+          combined = root/'Animated_Men_Women_8_walk.mp4'
+          out = subprocess.check_output([
+              'ffprobe','-v','error','-select_streams','v:0',
+              '-show_entries','stream=width,height,nb_frames','-of','json',str(combined)
+          ])
+          stream = json.loads(out)['streams'][0]
+          assert int(stream['width']) == 1200 and int(stream['height']) == 900, stream
+          assert int(stream['nb_frames']) == 33, stream
           assert (root/'contact_sheet.png').stat().st_size > 10000
           print('EXACT_PACK_VERIFY_PASS')
           PY
@@ -116,13 +121,14 @@ jobs:
       - name: Add source note
         run: |
           cat > artifacts/animated_men_women/SOURCE.txt <<'EOF'
-          Exact source packs:
-          Quaternius Animated Men Pack, February 2019, CC0.
-          Official Drive: https://drive.google.com/drive/folders/17LibivOaUidsQhSkcxP3YYvDr0n7wIwu
-          Quaternius Animated Women Pack, February 2019, CC0.
-          Official Drive: https://drive.google.com/drive/folders/1c13R--fMqdR6r2MRlcKKsbPky0__T-yJ
-          This proof uses the original Quaternius .blend source files from those folders.
-          No generated substitute character mesh is used.
+          Exact Quaternius February 2019 animated human packs.
+          License: CC0 1.0.
+          Official Men Drive: https://drive.google.com/drive/folders/17LibivOaUidsQhSkcxP3YYvDr0n7wIwu
+          Official Women Drive: https://drive.google.com/drive/folders/1c13R--fMqdR6r2MRlcKKsbPky0__T-yJ
+          Mirror used for CI: https://github.com/MRPT/mvsim-models
+          Mirror files: AnimatedMenCharacters.zip and AnimatedWomenCharacters.zip.
+          The FBX filenames match the official Quaternius Drive folders.
+          No generated or substitute character mesh is used.
           EOF
 
       - name: Upload exact pack artifact
@@ -130,22 +136,22 @@ jobs:
         with:
           name: exact-animated-men-women-8-blender-proof
           path: |
-            artifacts/animated_men_women/Men_01/Men_01.blend
-            artifacts/animated_men_women/Men_01/Men_01_walk.mp4
-            artifacts/animated_men_women/Men_02/Men_02.blend
-            artifacts/animated_men_women/Men_02/Men_02_walk.mp4
-            artifacts/animated_men_women/Men_03/Men_03.blend
-            artifacts/animated_men_women/Men_03/Men_03_walk.mp4
-            artifacts/animated_men_women/Men_04/Men_04.blend
-            artifacts/animated_men_women/Men_04/Men_04_walk.mp4
-            artifacts/animated_men_women/Women_01/Women_01.blend
-            artifacts/animated_men_women/Women_01/Women_01_walk.mp4
-            artifacts/animated_men_women/Women_02/Women_02.blend
-            artifacts/animated_men_women/Women_02/Women_02_walk.mp4
-            artifacts/animated_men_women/Women_03/Women_03.blend
-            artifacts/animated_men_women/Women_03/Women_03_walk.mp4
-            artifacts/animated_men_women/Women_04/Women_04.blend
-            artifacts/animated_men_women/Women_04/Women_04_walk.mp4
+            artifacts/animated_men_women/Men_Casual/Men_Casual.blend
+            artifacts/animated_men_women/Men_Casual/Men_Casual_walk.mp4
+            artifacts/animated_men_women/Men_LongSleeve/Men_LongSleeve.blend
+            artifacts/animated_men_women/Men_LongSleeve/Men_LongSleeve_walk.mp4
+            artifacts/animated_men_women/Men_Shirt/Men_Shirt.blend
+            artifacts/animated_men_women/Men_Shirt/Men_Shirt_walk.mp4
+            artifacts/animated_men_women/Men_Suit/Men_Suit.blend
+            artifacts/animated_men_women/Men_Suit/Men_Suit_walk.mp4
+            artifacts/animated_men_women/Women_Alternative/Women_Alternative.blend
+            artifacts/animated_men_women/Women_Alternative/Women_Alternative_walk.mp4
+            artifacts/animated_men_women/Women_Casual/Women_Casual.blend
+            artifacts/animated_men_women/Women_Casual/Women_Casual_walk.mp4
+            artifacts/animated_men_women/Women_Dress/Women_Dress.blend
+            artifacts/animated_men_women/Women_Dress/Women_Dress_walk.mp4
+            artifacts/animated_men_women/Women_TankTop/Women_TankTop.blend
+            artifacts/animated_men_women/Women_TankTop/Women_TankTop_walk.mp4
             artifacts/animated_men_women/Animated_Men_Women_8_walk.mp4
             artifacts/animated_men_women/contact_sheet.png
             artifacts/animated_men_women/qc_report.json
