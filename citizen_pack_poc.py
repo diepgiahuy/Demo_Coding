@@ -74,17 +74,12 @@ def place_character(objects, x, citizen_name):
         raise RuntimeError(f"No top-level objects for {citizen_name}")
     for obj in top_level:
         obj.location.x += x
-
-    root = bpy.data.objects.new(citizen_name, None)
-    bpy.context.collection.objects.link(root)
-    for obj in top_level:
-        world = obj.matrix_world.copy()
-        obj.parent = root
-        obj.matrix_world = world
-    return root, [o.name for o in top_level]
+    bpy.context.view_layer.update()
+    return [o.name for o in top_level]
 
 
 def mesh_world_center(meshes):
+    bpy.context.view_layer.update()
     points = []
     for obj in meshes:
         for corner in obj.bound_box:
@@ -158,14 +153,17 @@ def main():
         objects, actions = import_glb(os.path.join(ASSET_DIR, filename))
         armature = find_armature(objects)
         walk = find_walk_action(actions)
-        _, top_names = place_character(objects, x, citizen_name)
+        top_names = place_character(objects, x, citizen_name)
         armature.name = citizen_name + "_Rig"
         meshes = [o for o in objects if o.type == "MESH"]
         for mesh_index, obj in enumerate(meshes, start=1):
             obj.name = f"{citizen_name}_Mesh_{mesh_index:02d}"
         action_span = activate_walk(armature, walk, scene_start, scene_end, phase_offsets[idx])
         scene.frame_set(scene_start)
+        bpy.context.view_layer.update()
         bone_names, amplitudes = pose_motion(armature, scene_start, scene_end)
+        scene.frame_set(scene_start)
+        bpy.context.view_layer.update()
         center = mesh_world_center(meshes)
         if abs(center[0] - x) > 0.6:
             raise RuntimeError(f"Character placement failed for {citizen_name}: expected x={x}, center={center}")
@@ -199,6 +197,7 @@ def main():
     scene.render.image_settings.compression = 30
     scene.render.filepath = os.path.join(FRAME_DIR, "frame_")
     scene.frame_set(scene_start)
+    bpy.context.view_layer.update()
     report.update({
         "blender_version": bpy.app.version_string,
         "license": "CC0 1.0",
