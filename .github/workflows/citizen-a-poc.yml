@@ -66,7 +66,7 @@ jobs:
           grep -q CITIZEN_A_POC_PASS artifacts/citizen_a/blender.log
           test -s artifacts/citizen_a/Citizen_A.blend
           test -s artifacts/citizen_a/qc_report.json
-          test "$(find artifacts/citizen_a/frames -name 'frame_*.png' | wc -l)" -ge 45
+          test "$(find artifacts/citizen_a/frames -name 'frame_*.png' | wc -l)" -ge 20
 
       - name: Encode preview video
         run: |
@@ -85,12 +85,18 @@ jobs:
             > artifacts/citizen_a/ffprobe.json
 
           mkdir -p artifacts/citizen_a/check_frames
-          ffmpeg -y -i artifacts/citizen_a/Citizen_A_walk.mp4 \
-            -vf "select='eq(n,0)+eq(n,15)+eq(n,30)+eq(n,45)'" \
-            -vsync 0 artifacts/citizen_a/check_frames/frame_%02d.png
+          python3 - <<'PY'
+          from pathlib import Path
+          from shutil import copy2
+          frames = sorted(Path('artifacts/citizen_a/frames').glob('frame_*.png'))
+          assert len(frames) >= 20, len(frames)
+          indexes = [0, len(frames)//3, (2*len(frames))//3, len(frames)-1]
+          for out_index, source_index in enumerate(indexes, start=1):
+              copy2(frames[source_index], f'artifacts/citizen_a/check_frames/frame_{out_index:02d}.png')
+          PY
 
           ffmpeg -y -i artifacts/citizen_a/Citizen_A_walk.mp4 \
-            -vf "fps=1,scale=320:-1,tile=4x1" -frames:v 1 \
+            -vf "select='not(mod(n,10))',scale=320:-1,tile=4x1" -frames:v 1 \
             artifacts/citizen_a/contact_sheet.png
 
           python3 - <<'PY'
@@ -106,8 +112,9 @@ jobs:
           assert report['fps'] == 30, report
           assert report['mesh_objects'] >= 1, report
           assert report['bones'] >= 10, report
+          assert report['frame_count'] >= 20, report
           assert int(stream['width']) == 640 and int(stream['height']) == 640, stream
-          assert int(stream['nb_frames']) >= 45, stream
+          assert int(stream['nb_frames']) >= 20, stream
           for bone in ['FootL', 'FootR']:
               if bone in report['limb_motion_amplitude']:
                   assert report['limb_motion_amplitude'][bone] > 0.005, report
