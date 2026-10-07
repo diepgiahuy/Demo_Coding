@@ -131,7 +131,7 @@ def create_floor():
 def create_camera():
     cam_data = bpy.data.cameras.new("Camera")
     cam_data.type = "ORTHO"
-    cam_data.ortho_scale = 4.2
+    cam_data.ortho_scale = 4.5
     cam = bpy.data.objects.new("Camera", cam_data)
     bpy.context.collection.objects.link(cam)
     bpy.context.scene.camera = cam
@@ -158,8 +158,8 @@ def main():
 
         root = bpy.data.objects.new(citizen_name, None)
         bpy.context.collection.objects.link(root)
-        root.location.x = x
         parent_import_to_root(objects, root)
+        root.location.x = x
 
         armature.name = citizen_name + "_Rig"
         meshes = [o for o in objects if o.type == "MESH"]
