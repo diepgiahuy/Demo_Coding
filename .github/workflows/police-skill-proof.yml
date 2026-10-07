@@ -19,28 +19,34 @@ jobs:
         run: |
           curl -fL --retry 3 -o blender.tar.xz https://download.blender.org/release/Blender5.2/blender-5.2.2-linux-x64.tar.xz
           tar -xf blender.tar.xz
-      - name: Download verified CC0 SWAT
+      - name: Download proven Quaternius Hoodie base
         run: |
           mkdir -p assets/police_skill artifacts/police_skill
-          curl -fL --retry 3 -o assets/police_skill/swat.glb \
-            https://raw.githubusercontent.com/euuuuuuuan/fatal-funnel-public/main/packages/renderer/assets/models/quaternius-men/swat.glb
-          sha256sum assets/police_skill/swat.glb | tee artifacts/police_skill/asset_sha256.txt
-          grep -qi a835107bac833eb916c494e10997ae1709e85957ea6f6c59ace3c9a66f6d1fec artifacts/police_skill/asset_sha256.txt
+          curl -fL --retry 3 -o assets/police_skill/hoodie_character.glb \
+            https://raw.githubusercontent.com/VitexSoftware/ishtaria-client/f50f3ee5b04c1a34f8c30a338db51003aca1b8b0/assets/quaternius/characters/Models/hoodie_character.glb
+          test -s assets/police_skill/hoodie_character.glb
+          sha256sum assets/police_skill/hoodie_character.glb > artifacts/police_skill/asset_sha256.txt
       - name: Build Blender proof
         run: |
           ./blender-5.2.2-linux-x64/blender --background --python police_skill_proof.py | tee artifacts/police_skill/blender.log
           grep -q POLICE_SKILL_PROOF_PASS artifacts/police_skill/blender.log
-          test -s artifacts/police_skill/Police_SWAT_SkillProof.blend
+          test -s artifacts/police_skill/Police_Hoodie_SkillProof.blend
       - name: Encode 60fps preview
         run: |
           ffmpeg -y -framerate 60 -pattern_type glob -i 'artifacts/police_skill/frames/frame_*.png' \
             -c:v libx264 -preset medium -crf 18 -pix_fmt yuv420p -movflags +faststart \
-            artifacts/police_skill/Police_SWAT_walk_60fps.mp4
+            artifacts/police_skill/Police_Hoodie_walk_60fps.mp4
           ffprobe -v error -show_entries stream=width,height,nb_frames,r_frame_rate -show_entries format=duration,size -of json \
-            artifacts/police_skill/Police_SWAT_walk_60fps.mp4 > artifacts/police_skill/ffprobe.json
+            artifacts/police_skill/Police_Hoodie_walk_60fps.mp4 > artifacts/police_skill/ffprobe.json
       - name: Visual QC sheet
         run: |
-          ffmpeg -y -i artifacts/police_skill/Police_SWAT_walk_60fps.mp4 \
+          python3 - <<'PY'
+          from pathlib import Path
+          frames=sorted(Path('artifacts/police_skill/frames').glob('frame_*.png'))
+          assert len(frames)>=50, len(frames)
+          print('frames',len(frames))
+          PY
+          ffmpeg -y -i artifacts/police_skill/Police_Hoodie_walk_60fps.mp4 \
             -vf "select='eq(n,0)+eq(n,16)+eq(n,32)+eq(n,48)+eq(n,64)',scale=300:-1,tile=5x1" \
             -frames:v 1 artifacts/police_skill/contact_sheet.png
           test -s artifacts/police_skill/contact_sheet.png
@@ -56,6 +62,7 @@ jobs:
           assert 'walk' in r['walk_action'].lower()
           assert r['original_rigged_mesh_count']>=1
           assert r['max_visible_mesh_displacement']>0.03
+          assert len(r['police_gear'])>=8
           assert s['r_frame_rate']=='60/1'
           assert int(s['width'])==720 and int(s['height'])==720
           assert int(s['nb_frames'])>=50
@@ -66,8 +73,8 @@ jobs:
         with:
           name: police-skill-proof
           path: |
-            artifacts/police_skill/Police_SWAT_SkillProof.blend
-            artifacts/police_skill/Police_SWAT_walk_60fps.mp4
+            artifacts/police_skill/Police_Hoodie_SkillProof.blend
+            artifacts/police_skill/Police_Hoodie_walk_60fps.mp4
             artifacts/police_skill/contact_sheet.png
             artifacts/police_skill/qc_report.json
             artifacts/police_skill/ffprobe.json
