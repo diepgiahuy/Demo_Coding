@@ -1,10 +1,54 @@
 name: Police Full Character Test
 
 on:
+  push:
+    branches: [police-vest-test]
   workflow_dispatch:
 
 jobs:
   render:
     runs-on: ubuntu-latest
+    timeout-minutes: 12
     steps:
-      - run: echo "manual only during v2 prep"
+      - uses: actions/checkout@v4
+      - name: Install minimal Blender runtime
+        run: sudo apt-get install -y --no-install-recommends libegl1
+      - name: Download Blender 5.2.2
+        run: |
+          curl -fL --retry 3 -o blender.tar.xz https://download.blender.org/release/Blender5.2/blender-5.2.2-linux-x64.tar.xz
+          tar -xf blender.tar.xz
+      - name: Download proven Quaternius rig source
+        run: |
+          mkdir -p assets/police_full artifacts/police_full_v2
+          curl -fL --retry 3 -o assets/police_full/hoodie_character.glb \
+            https://raw.githubusercontent.com/VitexSoftware/ishtaria-client/f50f3ee5b04c1a34f8c30a338db51003aca1b8b0/assets/quaternius/characters/Models/hoodie_character.glb
+          test -s assets/police_full/hoodie_character.glb
+      - name: Build and render stylized police v2
+        run: |
+          ./blender-5.2.2-linux-x64/blender --background --python police_full_v2.py | tee artifacts/police_full_v2/blender.log
+          grep -q POLICE_FULL_V2_PASS artifacts/police_full_v2/blender.log
+          test -s artifacts/police_full_v2/Police_Officer_Stylized.blend
+          test -s artifacts/police_full_v2/qc_report.json
+          test "$(find artifacts/police_full_v2/frames -name 'frame_*.png' | wc -l)" -ge 50
+      - name: Verify report
+        run: |
+          python3 - <<'PY'
+          import json
+          from pathlib import Path
+          r=json.loads(Path('artifacts/police_full_v2/qc_report.json').read_text())
+          assert r['fps']==60, r
+          assert r['spec']['piece_count'] >= 30, r
+          assert r['source_mesh_hidden'] and r['no_auto_weight'] and r['no_retarget'] and r['no_bone_edit'] and r['rig_animation_preserved'], r
+          assert 0.003 < r['motion'] < r['spec']['char_h']*1.3, r
+          assert r['bounds_diag'] < r['spec']['char_h']*2.0, r
+          print('POLICE_FULL_V2_VERIFY_PASS')
+          PY
+      - name: Upload stylized police proof
+        uses: actions/upload-artifact@v4
+        with:
+          name: police-full-v2
+          path: |
+            artifacts/police_full_v2/Police_Officer_Stylized.blend
+            artifacts/police_full_v2/qc_report.json
+            artifacts/police_full_v2/blender.log
+            artifacts/police_full_v2/frames/*.png
