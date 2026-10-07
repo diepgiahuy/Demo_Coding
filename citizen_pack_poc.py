@@ -219,3 +219,5 @@ def main():
 
 if __name__ == "__main__":
     main()
+
+# Real Blender proof rerun: 2026-10-08
