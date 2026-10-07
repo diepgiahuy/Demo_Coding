@@ -10,8 +10,7 @@ ASSET = os.path.join(ROOT, "assets", "citizen_a")
 os.makedirs(ART, exist_ok=True)
 os.makedirs(ASSET, exist_ok=True)
 
-HOODIE = os.path.join(ASSET, "m_hoodie.glb")
-ANIMS = os.path.join(ASSET, "anims.glb")
+MODEL = os.path.join(ASSET, "hoodie_character.glb")
 
 
 def reset_scene():
@@ -27,52 +26,75 @@ def import_glb(path):
 def find_armature(objects):
     arms = [o for o in objects if o.type == "ARMATURE"]
     if not arms:
-        raise RuntimeError("No armature was imported")
+        detail = [(o.name, o.type) for o in objects]
+        raise RuntimeError("No armature was imported: " + repr(detail))
     return max(arms, key=lambda o: len(o.data.bones))
 
 
-def walk_action_from(actions):
+def all_actions_for_armature(armature):
+    found = []
+    seen = set()
+
+    def add(action):
+        if action and action.name not in seen:
+            seen.add(action.name)
+            found.append(action)
+
+    ad = armature.animation_data
+    if ad:
+        add(ad.action)
+        for track in ad.nla_tracks:
+            for strip in track.strips:
+                add(strip.action)
+
+    for action in bpy.data.actions:
+        add(action)
+    return found
+
+
+def find_walk_action(actions):
     exact = [a for a in actions if a.name.lower() == "walk"]
     if exact:
         return exact[0]
     partial = [a for a in actions if "walk" in a.name.lower()]
     if partial:
         return partial[0]
-    raise RuntimeError("Walk action was not found: " + ", ".join(a.name for a in actions))
+    raise RuntimeError("Walk action was not found. Actions: " + ", ".join(a.name for a in actions))
 
 
-def configure_walk(armature, walk_action, repeats=4):
-    armature.animation_data_create()
-    ad = armature.animation_data
+def activate_walk(armature, walk_action, repeats=3):
+    ad = armature.animation_data_create()
     ad.action = None
     for track in list(ad.nla_tracks):
         ad.nla_tracks.remove(track)
-    start = int(round(walk_action.frame_range[0]))
-    action_end = float(walk_action.frame_range[1])
-    action_len = max(1.0, action_end - float(start))
+
+    start = int(math.floor(float(walk_action.frame_range[0])))
+    end_src = float(walk_action.frame_range[1])
+    span = max(1.0, end_src - start)
+
     track = ad.nla_tracks.new()
-    track.name = "Walk"
+    track.name = "Citizen_A_Walk"
     strip = track.strips.new("Walk", start, walk_action)
     strip.repeat = float(repeats)
-    end = int(math.ceil(start + action_len * repeats))
+    end = int(math.ceil(start + span * repeats))
     return start, end
 
 
-def rebind_meshes(mesh_objects, old_armature, new_armature):
-    rebound = 0
-    for obj in mesh_objects:
-        for mod in obj.modifiers:
-            if mod.type == "ARMATURE" and mod.object == old_armature:
-                mod.object = new_armature
-                rebound += 1
-        if obj.parent == old_armature:
-            world = obj.matrix_world.copy()
-            obj.parent = new_armature
-            obj.matrix_world = world
-    return rebound
+def world_bounds(objects):
+    pts = []
+    for obj in objects:
+        if obj.type != "MESH":
+            continue
+        for corner in obj.bound_box:
+            pts.append(obj.matrix_world @ Vector(corner))
+    if not pts:
+        raise RuntimeError("No mesh bounds were found")
+    lo = Vector((min(p.x for p in pts), min(p.y for p in pts), min(p.z for p in pts)))
+    hi = Vector((max(p.x for p in pts), max(p.y for p in pts), max(p.z for p in pts)))
+    return lo, hi
 
 
-def add_material(name, color, roughness=0.5, metallic=0.0):
+def make_material(name, color, roughness=0.6):
     mat = bpy.data.materials.new(name)
     mat.diffuse_color = (*color, 1.0)
     mat.use_nodes = True
@@ -80,136 +102,135 @@ def add_material(name, color, roughness=0.5, metallic=0.0):
     if bsdf:
         bsdf.inputs["Base Color"].default_value = (*color, 1.0)
         bsdf.inputs["Roughness"].default_value = roughness
-        bsdf.inputs["Metallic"].default_value = metallic
     return mat
 
 
-def add_plane():
-    bpy.ops.mesh.primitive_plane_add(size=12, location=(0, 0, 0))
-    plane = bpy.context.object
-    plane.name = "Floor"
-    plane.data.materials.append(add_material("FloorMat", (0.12, 0.13, 0.15), 0.72))
-    return plane
+def add_floor(z, size):
+    bpy.ops.mesh.primitive_plane_add(size=size, location=(0, 0, z))
+    obj = bpy.context.object
+    obj.name = "Floor"
+    obj.data.materials.append(make_material("FloorMat", (0.10, 0.11, 0.13), 0.78))
 
 
-def add_camera(frame_start, frame_end):
-    target = bpy.data.objects.new("CameraTarget", None)
-    target.location = (0, 0, 1.15)
-    bpy.context.collection.objects.link(target)
+def point_camera(camera, target):
+    direction = target - camera.location
+    camera.rotation_euler = direction.to_track_quat("-Z", "Y").to_euler()
 
-    orbit = bpy.data.objects.new("CameraOrbit", None)
-    bpy.context.collection.objects.link(orbit)
 
-    cam_data = bpy.data.cameras.new("Camera")
-    cam = bpy.data.objects.new("Camera", cam_data)
+def add_camera(lo, hi):
+    center = (lo + hi) * 0.5
+    height = max(0.5, hi.z - lo.z)
+    cam_data = bpy.data.cameras.new("Camera_Main")
+    cam = bpy.data.objects.new("Camera_Main", cam_data)
     bpy.context.collection.objects.link(cam)
     bpy.context.scene.camera = cam
-    cam.parent = orbit
-    cam.location = (0.0, -4.6, 1.85)
-    cam_data.lens = 56
-
-    con = cam.constraints.new(type="TRACK_TO")
-    con.target = target
-    con.track_axis = "TRACK_NEGATIVE_Z"
-    con.up_axis = "UP_Y"
-
-    orbit.rotation_euler = (0, 0, math.radians(-30))
-    orbit.keyframe_insert(data_path="rotation_euler", index=2, frame=frame_start)
-    orbit.rotation_euler = (0, 0, math.radians(95))
-    orbit.keyframe_insert(data_path="rotation_euler", index=2, frame=frame_end)
-
-    if orbit.animation_data and orbit.animation_data.action:
-        for fc in orbit.animation_data.action.fcurves:
-            for kp in fc.keyframe_points:
-                kp.interpolation = "LINEAR"
+    cam.location = center + Vector((height * 1.15, -height * 2.5, height * 0.35))
+    cam.data.lens = 58
+    point_camera(cam, center + Vector((0, 0, height * 0.02)))
     return cam
 
 
-def add_lights():
+def add_lights(lo, hi):
+    center = (lo + hi) * 0.5
+    height = max(0.5, hi.z - lo.z)
+
     world = bpy.context.scene.world
-    world.color = (0.025, 0.03, 0.045)
     world.use_nodes = True
     bg = world.node_tree.nodes.get("Background")
     if bg:
-        bg.inputs["Color"].default_value = (0.025, 0.03, 0.045, 1.0)
-        bg.inputs["Strength"].default_value = 0.5
+        bg.inputs["Color"].default_value = (0.018, 0.022, 0.03, 1.0)
+        bg.inputs["Strength"].default_value = 0.55
 
-    key_data = bpy.data.lights.new("Key", type="AREA")
-    key_data.energy = 900
-    key_data.shape = "DISK"
-    key_data.size = 4.0
-    key = bpy.data.objects.new("Key", key_data)
-    key.location = (-3.0, -3.0, 5.0)
-    bpy.context.collection.objects.link(key)
-
-    fill_data = bpy.data.lights.new("Fill", type="AREA")
-    fill_data.energy = 520
-    fill_data.size = 3.0
-    fill = bpy.data.objects.new("Fill", fill_data)
-    fill.location = (3.2, -1.5, 3.5)
-    bpy.context.collection.objects.link(fill)
-
-    rim_data = bpy.data.lights.new("Rim", type="AREA")
-    rim_data.energy = 700
-    rim_data.size = 2.5
-    rim = bpy.data.objects.new("Rim", rim_data)
-    rim.location = (0.0, 3.0, 4.0)
-    bpy.context.collection.objects.link(rim)
+    specs = [
+        ("Key", center + Vector((-height * 1.6, -height * 1.8, height * 2.0)), 900, height * 2.2),
+        ("Fill", center + Vector((height * 1.8, -height * 0.7, height * 1.2)), 500, height * 1.8),
+        ("Rim", center + Vector((0, height * 1.8, height * 1.8)), 700, height * 1.5),
+    ]
+    for name, loc, energy, size in specs:
+        data = bpy.data.lights.new(name, type="AREA")
+        data.energy = energy
+        data.shape = "DISK"
+        data.size = size
+        light = bpy.data.objects.new(name, data)
+        light.location = loc
+        bpy.context.collection.objects.link(light)
+        direction = center - light.location
+        light.rotation_euler = direction.to_track_quat("-Z", "Y").to_euler()
 
 
-def validate_pose(armature, start, end):
+def remove_optional_face_objects(objects):
+    removed = []
+    tokens = ("eye", "brow", "mouth", "teeth", "tongue")
+    for obj in list(objects):
+        low = obj.name.lower()
+        if obj.type == "MESH" and any(t in low for t in tokens):
+            removed.append(obj.name)
+            bpy.data.objects.remove(obj, do_unlink=True)
+    return removed
+
+
+def bone_samples(armature, start, end):
     scene = bpy.context.scene
-    bad = []
-    samples = sorted(set([start, start + (end-start)//4, start + (end-start)//2, start + 3*(end-start)//4, end]))
-    for frame in samples:
+    names = ["FootL", "FootR", "WristL", "WristR", "LowerLegL", "LowerLegR", "LowerArmL", "LowerArmR"]
+    available = [n for n in names if armature.pose.bones.get(n)]
+    frames = sorted(set([start, start + (end - start) // 6, start + (end - start) // 3, start + (end - start) // 2]))
+    data = {n: [] for n in available}
+
+    for frame in frames:
         scene.frame_set(frame)
-        for pb in armature.pose.bones:
-            values = [v for row in pb.matrix for v in row]
+        for name in available:
+            pb = armature.pose.bones[name]
+            matrix = armature.matrix_world @ pb.matrix
+            p = matrix.translation
+            q = matrix.to_quaternion()
+            values = [*p, q.w, q.x, q.y, q.z]
             if not all(math.isfinite(v) for v in values):
-                bad.append({"frame": frame, "bone": pb.name})
-    if bad:
-        raise RuntimeError("Non-finite pose matrices: " + json.dumps(bad[:10]))
-    return samples
+                raise RuntimeError(f"Invalid pose at frame {frame}, bone {name}")
+            data[name].append([round(v, 6) for v in values])
+
+    moving = {}
+    for name, samples in data.items():
+        positions = [Vector(s[:3]) for s in samples]
+        amplitude = max((a - b).length for a in positions for b in positions) if len(positions) > 1 else 0.0
+        moving[name] = round(amplitude, 6)
+
+    for name in ("FootL", "FootR", "WristL", "WristR"):
+        if name in moving and moving[name] < 0.005:
+            raise RuntimeError(f"Expected animated limb did not move: {name} amplitude={moving[name]}")
+
+    return frames, moving, data
 
 
 def main():
     reset_scene()
+    imported = import_glb(MODEL)
+    armature = find_armature(imported)
+    actions = all_actions_for_armature(armature)
+    walk = find_walk_action(actions)
+    start, end = activate_walk(armature, walk, repeats=3)
 
-    actions_before = set(bpy.data.actions)
-    anim_objects = import_glb(ANIMS)
-    anim_arm = find_armature(anim_objects)
-    imported_actions = [a for a in bpy.data.actions if a not in actions_before]
-    walk = walk_action_from(imported_actions)
-    frame_start, frame_end = configure_walk(anim_arm, walk, repeats=4)
-
-    hoodie_objects = import_glb(HOODIE)
-    hoodie_arm = find_armature(hoodie_objects)
-    meshes = [o for o in hoodie_objects if o.type == "MESH"]
-    rebound = rebind_meshes(meshes, hoodie_arm, anim_arm)
-    if rebound == 0:
-        raise RuntimeError("No hoodie mesh used the expected armature")
-
-    bpy.data.objects.remove(hoodie_arm, do_unlink=True)
-    anim_arm.name = "Citizen_A_Rig"
-    for i, obj in enumerate(meshes):
-        if i == 0:
-            obj.name = "Citizen_A_Mesh"
-        else:
-            obj.name = f"Citizen_A_Mesh_{i+1:02d}"
+    removed_face = remove_optional_face_objects(imported)
+    meshes = [o for o in imported if o.type == "MESH" and o.name in bpy.data.objects]
+    lo, hi = world_bounds(meshes)
 
     root = bpy.data.objects.new("Citizen_A", None)
     bpy.context.collection.objects.link(root)
-    world = anim_arm.matrix_world.copy()
-    anim_arm.parent = root
-    anim_arm.matrix_world = world
+    root_world = armature.matrix_world.copy()
+    armature.parent = root
+    armature.matrix_world = root_world
+    armature.name = "Citizen_A_Rig"
 
-    add_plane()
-    add_camera(frame_start, frame_end)
-    add_lights()
+    for index, obj in enumerate(meshes, start=1):
+        obj.name = "Citizen_A_Mesh" if index == 1 else f"Citizen_A_Mesh_{index:02d}"
+
+    add_floor(lo.z - 0.006, max(6.0, (hi.z - lo.z) * 4.5))
+    add_camera(lo, hi)
+    add_lights(lo, hi)
 
     scene = bpy.context.scene
-    scene.frame_start = frame_start
-    scene.frame_end = frame_end
+    scene.frame_start = start
+    scene.frame_end = end
+    scene.frame_set(start)
     scene.render.engine = "BLENDER_EEVEE_NEXT"
     scene.render.resolution_x = 640
     scene.render.resolution_y = 640
@@ -222,29 +243,32 @@ def main():
     scene.render.ffmpeg.ffmpeg_preset = "GOOD"
     scene.render.filepath = os.path.join(ART, "Citizen_A_walk.mp4")
 
-    samples = validate_pose(anim_arm, frame_start, frame_end)
-    scene.frame_set(frame_start)
-
-    blend_path = os.path.join(ART, "Citizen_A.blend")
-    bpy.ops.wm.save_as_mainfile(filepath=blend_path)
-    bpy.ops.render.render(animation=True)
+    sample_frames, amplitudes, samples = bone_samples(armature, start, end)
+    scene.frame_set(start)
 
     report = {
         "blender_version": bpy.app.version_string,
         "asset": "Quaternius Hoodie Character",
         "license": "CC0 1.0",
         "walk_action": walk.name,
+        "available_actions": [a.name for a in actions],
         "fps": scene.render.fps,
-        "frame_start": frame_start,
-        "frame_end": frame_end,
+        "frame_start": start,
+        "frame_end": end,
         "mesh_objects": len(meshes),
-        "bones": len(anim_arm.data.bones),
-        "rebound_armature_modifiers": rebound,
-        "pose_sample_frames": samples,
+        "bones": len(armature.data.bones),
+        "removed_optional_face_objects": removed_face,
+        "pose_sample_frames": sample_frames,
+        "limb_motion_amplitude": amplitudes,
+        "pose_samples": samples,
         "resolution": [scene.render.resolution_x, scene.render.resolution_y],
     }
+
     with open(os.path.join(ART, "qc_report.json"), "w", encoding="utf-8") as f:
         json.dump(report, f, indent=2)
+
+    bpy.ops.wm.save_as_mainfile(filepath=os.path.join(ART, "Citizen_A.blend"))
+    bpy.ops.render.render(animation=True)
 
     print("CITIZEN_A_POC_PASS")
     print(json.dumps(report, indent=2))
