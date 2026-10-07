@@ -64,21 +64,17 @@ def find_walk_action(actions):
     raise RuntimeError("Walk action was not found. Actions: " + ", ".join(a.name for a in actions))
 
 
-def activate_walk(armature, walk_action, repeats=3):
+def activate_walk(armature, walk_action):
     ad = armature.animation_data_create()
     ad.action = None
     for track in list(ad.nla_tracks):
         ad.nla_tracks.remove(track)
 
     start = int(math.floor(float(walk_action.frame_range[0])))
-    end_src = float(walk_action.frame_range[1])
-    span = max(1.0, end_src - start)
-
+    end = int(math.ceil(float(walk_action.frame_range[1])))
     track = ad.nla_tracks.new()
     track.name = "Citizen_A_Walk"
-    strip = track.strips.new("Walk", start, walk_action)
-    strip.repeat = float(repeats)
-    end = int(math.ceil(start + span * repeats))
+    track.strips.new("Walk", start, walk_action)
     return start, end
 
 
@@ -132,37 +128,6 @@ def add_camera(lo, hi):
     return cam
 
 
-def add_lights(lo, hi):
-    center = (lo + hi) * 0.5
-    height = max(0.5, hi.z - lo.z)
-
-    scene = bpy.context.scene
-    if scene.world is None:
-        scene.world = bpy.data.worlds.new("Citizen_A_World")
-    world = scene.world
-    world.use_nodes = True
-    bg = world.node_tree.nodes.get("Background")
-    if bg:
-        bg.inputs["Color"].default_value = (0.018, 0.022, 0.03, 1.0)
-        bg.inputs["Strength"].default_value = 0.55
-
-    specs = [
-        ("Key", center + Vector((-height * 1.6, -height * 1.8, height * 2.0)), 900, height * 2.2),
-        ("Fill", center + Vector((height * 1.8, -height * 0.7, height * 1.2)), 500, height * 1.8),
-        ("Rim", center + Vector((0, height * 1.8, height * 1.8)), 700, height * 1.5),
-    ]
-    for name, loc, energy, size in specs:
-        data = bpy.data.lights.new(name, type="AREA")
-        data.energy = energy
-        data.shape = "DISK"
-        data.size = size
-        light = bpy.data.objects.new(name, data)
-        light.location = loc
-        bpy.context.collection.objects.link(light)
-        direction = center - light.location
-        light.rotation_euler = direction.to_track_quat("-Z", "Y").to_euler()
-
-
 def remove_optional_face_objects(objects):
     removed = []
     tokens = ("eye", "brow", "mouth", "teeth", "tongue")
@@ -178,7 +143,7 @@ def bone_samples(armature, start, end):
     scene = bpy.context.scene
     names = ["FootL", "FootR", "WristL", "WristR", "LowerLegL", "LowerLegR", "LowerArmL", "LowerArmR"]
     available = [n for n in names if armature.pose.bones.get(n)]
-    frames = sorted(set([start, start + (end - start) // 6, start + (end - start) // 3, start + (end - start) // 2]))
+    frames = sorted(set([start, start + (end - start) // 4, start + (end - start) // 2, start + 3 * (end - start) // 4, end]))
     data = {n: [] for n in available}
 
     for frame in frames:
@@ -212,7 +177,7 @@ def main():
     armature = find_armature(imported)
     actions = all_actions_for_armature(armature)
     walk = find_walk_action(actions)
-    start, end = activate_walk(armature, walk, repeats=3)
+    start, end = activate_walk(armature, walk)
 
     removed_face = remove_optional_face_objects(imported)
     meshes = [o for o in imported if o.type == "MESH" and o.name in bpy.data.objects]
@@ -230,13 +195,16 @@ def main():
 
     add_floor(lo.z - 0.006, max(6.0, (hi.z - lo.z) * 4.5))
     add_camera(lo, hi)
-    add_lights(lo, hi)
 
     scene = bpy.context.scene
     scene.frame_start = start
     scene.frame_end = end
     scene.frame_set(start)
-    scene.render.engine = "BLENDER_EEVEE"
+    scene.render.engine = "BLENDER_WORKBENCH"
+    scene.display.shading.light = "STUDIO"
+    scene.display.shading.color_type = "MATERIAL"
+    scene.display.shading.show_shadows = True
+    scene.display.shading.show_cavity = True
     scene.render.resolution_x = 640
     scene.render.resolution_y = 640
     scene.render.resolution_percentage = 100
@@ -258,6 +226,7 @@ def main():
         "fps": scene.render.fps,
         "frame_start": start,
         "frame_end": end,
+        "frame_count": end - start + 1,
         "mesh_objects": len(meshes),
         "bones": len(armature.data.bones),
         "removed_optional_face_objects": removed_face,
@@ -265,6 +234,7 @@ def main():
         "limb_motion_amplitude": amplitudes,
         "pose_samples": samples,
         "resolution": [scene.render.resolution_x, scene.render.resolution_y],
+        "preview_engine": "BLENDER_WORKBENCH",
     }
 
     with open(os.path.join(ART, "qc_report.json"), "w", encoding="utf-8") as f:
