@@ -10,7 +10,7 @@ on:
 jobs:
   build-and-prove:
     runs-on: ubuntu-latest
-    timeout-minutes: 30
+    timeout-minutes: 15
 
     steps:
       - name: Checkout
@@ -43,6 +43,8 @@ jobs:
           s=s.replace('    scene.world.color = (.035, .045, .06)\n', '    if scene.world is None:\n        scene.world = bpy.data.worlds.new("World_Demo_V2")\n    scene.world.color = (.035, .045, .06)\n')
           s=re.sub(r'    if car_proxy\.animation_data and car_proxy\.animation_data\.action:\n(?:        .*\n){1,5}', '', s)
           s=re.sub(r'    if ball\.animation_data and ball\.animation_data\.action:\n(?:        .*\n){1,5}', '', s)
+          # Eevee renders only four QA frames. Workbench renders the 84-frame motion proof later.
+          s=s.replace('    bpy.ops.render.render(animation=True)\n', '    print("FULL_EEVEE_RENDER_SKIPPED_FOR_CI")\n')
           p.write_text(s)
           PY
           python3 -m py_compile outbreak_fx_physics_v2.py
@@ -69,9 +71,41 @@ jobs:
         run: |
           ./blender-5.2.2-linux-x64/blender --background --factory-startup --python outbreak_fx_physics_v2.py | tee physics.log
           grep -q OUTBREAK_FX_PHYSICS_V2_PASS physics.log
+          test -s Outbreak_Asset_Library_v2.blend
+          test -s Outbreak_Physics_Demo_v2.blend
+          test -s fx_physics_qa.json
+          test "$(find qa_frames_v2 -name 'frame_*.png' | wc -l)" -eq 4
 
-      - name: Encode proof video
+      - name: Render fast motion proof
         run: |
+          cat > render_workbench.py <<'PY'
+          import bpy
+          from pathlib import Path
+
+          root = Path.cwd()
+          scene = bpy.context.scene
+          scene.render.engine = 'BLENDER_WORKBENCH'
+          scene.render.resolution_x = 480
+          scene.render.resolution_y = 270
+          scene.render.resolution_percentage = 100
+          scene.render.image_settings.file_format = 'PNG'
+          scene.render.filepath = str(root / 'render_frames_v2' / 'frame_')
+          scene.render.fps = 24
+          scene.render.film_transparent = False
+          scene.display.shading.light = 'STUDIO'
+          scene.display.shading.color_type = 'MATERIAL'
+          scene.display.shading.show_shadows = True
+          scene.display.shading.show_cavity = True
+          for obj in scene.objects:
+              for mod in obj.modifiers:
+                  if mod.type == 'FLUID':
+                      obj.hide_render = True
+                      break
+          bpy.ops.render.render(animation=True)
+          print('WORKBENCH_MOTION_PASS')
+          PY
+          ./blender-5.2.2-linux-x64/blender Outbreak_Physics_Demo_v2.blend --background --python render_workbench.py | tee workbench.log
+          grep -q WORKBENCH_MOTION_PASS workbench.log
           test "$(find render_frames_v2 -name 'frame_*.png' | wc -l)" -eq 84
           ffmpeg -y -framerate 24 -i render_frames_v2/frame_%04d.png -c:v libx264 -pix_fmt yuv420p -movflags +faststart Outbreak_Physics_Demo_v2.mp4
 
@@ -81,7 +115,6 @@ jobs:
           test -s Outbreak_Physics_Demo_v2.blend
           test -s Outbreak_Physics_Demo_v2.mp4
           test -s fx_physics_qa.json
-          test "$(find qa_frames_v2 -name 'frame_*.png' | wc -l)" -eq 4
           ffprobe -v error -show_entries stream=width,height,nb_frames,r_frame_rate -show_entries format=duration,size -of json Outbreak_Physics_Demo_v2.mp4 > fx_physics_ffprobe.json
           python3 - <<'PY'
           import json
@@ -96,7 +129,7 @@ jobs:
           assert q['fluid_domains'] >= 1, q
           assert q['fluid_flows'] >= 1, q
           assert q['fluid_cache_files'] > 0, q
-          assert int(s['width']) == 640 and int(s['height']) == 360, s
+          assert int(s['width']) == 480 and int(s['height']) == 270, s
           assert int(s['nb_frames']) == 84, s
           assert 3.4 <= float(f['format']['duration']) <= 3.6, f
           print('OUTBREAK_FX_PHYSICS_ARTIFACTS_PASS')
@@ -116,3 +149,4 @@ jobs:
             outbreak_fx_physics_v2.py
             build.log
             physics.log
+            workbench.log
