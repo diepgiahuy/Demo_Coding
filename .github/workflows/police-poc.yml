@@ -1,0 +1,126 @@
+name: Police Blender POC
+
+on:
+  push:
+    branches: [police-poc]
+  workflow_dispatch:
+
+jobs:
+  render:
+    runs-on: ubuntu-latest
+    timeout-minutes: 15
+
+    steps:
+      - name: Checkout
+        uses: actions/checkout@v4
+
+      - name: Install runtime packages
+        run: |
+          sudo apt-get update
+          sudo apt-get install -y libegl1 libgl1 libx11-xcb1 libxcb1 libxkbcommon0 ffmpeg
+
+      - name: Download Blender 5.2.2
+        run: |
+          curl -fL --retry 3 -o blender.tar.xz https://download.blender.org/release/Blender5.2/blender-5.2.2-linux-x64.tar.xz
+          tar -xf blender.tar.xz
+          ./blender-5.2.2-linux-x64/blender --version
+
+      - name: Download CC0 Quaternius base
+        run: |
+          mkdir -p assets/police_poc artifacts/police_poc
+          curl -fL --retry 3 -o assets/police_poc/character_animated.glb \
+            https://raw.githubusercontent.com/VitexSoftware/ishtaria-client/f50f3ee5b04c1a34f8c30a338db51003aca1b8b0/assets/quaternius/characters/Models/character_animated.glb
+          test -s assets/police_poc/character_animated.glb
+
+      - name: Verify source Walk and skin
+        run: |
+          python3 - <<'PY'
+          import json, struct
+          from pathlib import Path
+          p = Path('assets/police_poc/character_animated.glb')
+          data = p.read_bytes()
+          assert data[:4] == b'glTF'
+          assert struct.unpack_from('<I', data, 8)[0] == len(data)
+          offset = 12
+          doc = None
+          while offset < len(data):
+              chunk_len, chunk_type = struct.unpack_from('<II', data, offset)
+              offset += 8
+              chunk = data[offset:offset+chunk_len]
+              offset += chunk_len
+              if chunk_type == 0x4E4F534A:
+                  doc = json.loads(chunk.decode('utf-8').rstrip('\x00 '))
+                  break
+          assert doc is not None
+          names = [a.get('name', '') for a in doc.get('animations', [])]
+          assert any('walk' in n.lower() for n in names), names
+          assert doc.get('skins'), 'No skin found'
+          print('SOURCE_PASS', [n for n in names if 'walk' in n.lower()])
+          PY
+
+      - name: Build Police Officer in Blender
+        run: |
+          ./blender-5.2.2-linux-x64/blender --background --python police_poc.py | tee artifacts/police_poc/blender.log
+          grep -q POLICE_POC_PASS artifacts/police_poc/blender.log
+          test -s artifacts/police_poc/Police_Officer.blend
+          test -s artifacts/police_poc/qc_report.json
+          test "$(find artifacts/police_poc/frames -name 'frame_*.png' | wc -l)" -ge 60
+
+      - name: Encode 60 fps preview
+        run: |
+          ffmpeg -y -framerate 60 -pattern_type glob \
+            -i 'artifacts/police_poc/frames/frame_*.png' \
+            -c:v libx264 -preset medium -crf 18 -pix_fmt yuv420p -movflags +faststart \
+            artifacts/police_poc/Police_Officer_walk_60fps.mp4
+
+      - name: Verify video and contact sheet
+        run: |
+          ffprobe -v error \
+            -show_entries stream=width,height,nb_frames,r_frame_rate \
+            -show_entries format=duration,size \
+            -of json artifacts/police_poc/Police_Officer_walk_60fps.mp4 \
+            > artifacts/police_poc/ffprobe.json
+
+          python3 - <<'PY'
+          import json
+          from pathlib import Path
+          report = json.loads(Path('artifacts/police_poc/qc_report.json').read_text())
+          probe = json.loads(Path('artifacts/police_poc/ffprobe.json').read_text())
+          stream = probe['streams'][0]
+          assert report['blender_version'].startswith('5.2.2'), report
+          assert 'walk' in report['walk_action'].lower(), report
+          assert report['fps'] == 60, report
+          assert len(report['gear_objects']) >= 10, report
+          assert int(stream['width']) == 720 and int(stream['height']) == 720, stream
+          assert stream['r_frame_rate'] == '60/1', stream
+          assert int(stream['nb_frames']) >= 60, stream
+          print('POLICE_VERIFY_PASS')
+          PY
+
+          ffmpeg -y -i artifacts/police_poc/Police_Officer_walk_60fps.mp4 \
+            -vf "select='eq(n,0)+eq(n,16)+eq(n,32)+eq(n,48)+eq(n,64)',scale=320:-1,tile=5x1" \
+            -frames:v 1 artifacts/police_poc/contact_sheet.png
+          test -s artifacts/police_poc/contact_sheet.png
+
+      - name: Add source note
+        run: |
+          cat > artifacts/police_poc/SOURCE.txt <<'EOF'
+          Police Officer POC based on the user's supplied low-poly police/civilian reference.
+          Base character: Quaternius character_animated.glb, CC0 1.0.
+          Skeleton, skin weights, and Walk action remain from the original rigged asset.
+          Police uniform pieces are Blender mesh objects added by script and bone-parented.
+          Walk preview is sampled at 60 fps using the original Walk Action with time scale 2.0.
+          EOF
+
+      - name: Upload Police artifact
+        uses: actions/upload-artifact@v4
+        with:
+          name: police-officer-blender-poc
+          path: |
+            artifacts/police_poc/Police_Officer.blend
+            artifacts/police_poc/Police_Officer_walk_60fps.mp4
+            artifacts/police_poc/contact_sheet.png
+            artifacts/police_poc/qc_report.json
+            artifacts/police_poc/ffprobe.json
+            artifacts/police_poc/SOURCE.txt
+            artifacts/police_poc/blender.log
