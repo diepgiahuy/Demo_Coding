@@ -13,11 +13,11 @@ os.makedirs(ART_DIR, exist_ok=True)
 os.makedirs(FRAME_DIR, exist_ok=True)
 
 CITIZENS = [
-    ("Citizen_A_Hoodie", "hoodie_character.glb", -3.2),
-    ("Citizen_B_Punk", "punk.glb", -1.6),
+    ("Citizen_A_Hoodie", "hoodie_character.glb", -3.0),
+    ("Citizen_B_Punk", "punk.glb", -1.5),
     ("Citizen_C_Casual_Woman", "animated_woman.glb", 0.0),
-    ("Citizen_D_Suit_Woman", "suit_woman.glb", 1.6),
-    ("Citizen_E_Worker_Woman", "worker_woman.glb", 3.2),
+    ("Citizen_D_Suit_Woman", "suit_woman.glb", 1.5),
+    ("Citizen_E_Worker_Woman", "worker_woman.glb", 3.0),
 ]
 
 
@@ -54,11 +54,9 @@ def activate_walk(armature, action, scene_start, scene_end, phase):
     ad.action = None
     for track in list(ad.nla_tracks):
         ad.nla_tracks.remove(track)
-
     action_start = float(action.frame_range[0])
     action_end = float(action.frame_range[1])
     action_span = max(1.0, action_end - action_start)
-
     track = ad.nla_tracks.new()
     track.name = "Walk"
     strip_start = scene_start - phase
@@ -69,52 +67,58 @@ def activate_walk(armature, action, scene_start, scene_end, phase):
     return action_span
 
 
-def parent_import_to_root(objects, root):
+def place_character(objects, x, citizen_name):
     imported = set(objects)
-    for obj in [o for o in objects if o.parent not in imported]:
+    top_level = [o for o in objects if o.parent not in imported]
+    if not top_level:
+        raise RuntimeError(f"No top-level objects for {citizen_name}")
+    for obj in top_level:
+        obj.location.x += x
+
+    root = bpy.data.objects.new(citizen_name, None)
+    bpy.context.collection.objects.link(root)
+    for obj in top_level:
         world = obj.matrix_world.copy()
         obj.parent = root
         obj.matrix_world = world
+    return root, [o.name for o in top_level]
+
+
+def mesh_world_center(meshes):
+    points = []
+    for obj in meshes:
+        for corner in obj.bound_box:
+            points.append(obj.matrix_world @ Vector(corner))
+    if not points:
+        return [0.0, 0.0, 0.0]
+    center = Vector((
+        (min(p.x for p in points) + max(p.x for p in points)) * 0.5,
+        (min(p.y for p in points) + max(p.y for p in points)) * 0.5,
+        (min(p.z for p in points) + max(p.z for p in points)) * 0.5,
+    ))
+    return [round(v, 4) for v in center]
 
 
 def pose_motion(armature, start, end):
     scene = bpy.context.scene
     all_names = [b.name for b in armature.pose.bones]
-    limb_names = [
-        name for name in all_names
-        if any(token in name.lower() for token in ("foot", "hand", "wrist", "ankle"))
-    ]
+    limb_names = [n for n in all_names if any(t in n.lower() for t in ("foot", "hand", "wrist", "ankle"))]
     if len(limb_names) < 4:
-        limb_names = [
-            name for name in all_names
-            if any(token in name.lower() for token in ("leg", "arm"))
-        ][:12]
+        limb_names = [n for n in all_names if any(t in n.lower() for t in ("leg", "arm"))][:12]
     if len(limb_names) < 4:
-        raise RuntimeError(f"Could not identify limb bones for {armature.name}: {all_names}")
-
-    frames = sorted(set([
-        start,
-        start + (end-start)//4,
-        start + (end-start)//2,
-        start + 3*(end-start)//4,
-        end,
-    ]))
+        raise RuntimeError(f"Could not identify limb bones for {armature.name}")
+    frames = sorted(set([start, start + (end-start)//4, start + (end-start)//2, start + 3*(end-start)//4, end]))
     amplitudes = {}
-
     for name in limb_names:
         positions = []
         for frame in frames:
             scene.frame_set(frame)
-            pb = armature.pose.bones[name]
-            p = (armature.matrix_world @ pb.matrix).translation
+            p = (armature.matrix_world @ armature.pose.bones[name].matrix).translation
             if not all(math.isfinite(v) for v in p):
                 raise RuntimeError(f"Invalid pose: {armature.name} {name} frame={frame}")
             positions.append(p.copy())
-        amplitude = max((a-b).length for a in positions for b in positions)
-        amplitudes[name] = round(amplitude, 6)
-
-    moving_count = sum(1 for value in amplitudes.values() if value > 0.005)
-    if moving_count < 2:
+        amplitudes[name] = round(max((a-b).length for a in positions for b in positions), 6)
+    if sum(1 for v in amplitudes.values() if v > 0.005) < 2:
         raise RuntimeError(f"Limb motion check failed for {armature.name}: {amplitudes}")
     return all_names, amplitudes
 
@@ -131,11 +135,11 @@ def create_floor():
 def create_camera():
     cam_data = bpy.data.cameras.new("Camera")
     cam_data.type = "ORTHO"
-    cam_data.ortho_scale = 4.5
+    cam_data.ortho_scale = 4.3
     cam = bpy.data.objects.new("Camera", cam_data)
     bpy.context.collection.objects.link(cam)
     bpy.context.scene.camera = cam
-    cam.location = (0.0, -10.0, 2.35)
+    cam.location = (0.0, -10.0, 2.3)
     target = Vector((0.0, 0.0, 1.05))
     cam.rotation_euler = (target - cam.location).to_track_quat("-Z", "Y").to_euler()
 
@@ -147,7 +151,6 @@ def main():
     scene.frame_start = scene_start
     scene.frame_end = scene_end
     scene.render.fps = 30
-
     report = {"citizens": []}
     phase_offsets = [0, 6, 12, 18, 24]
 
@@ -155,24 +158,23 @@ def main():
         objects, actions = import_glb(os.path.join(ASSET_DIR, filename))
         armature = find_armature(objects)
         walk = find_walk_action(actions)
-
-        root = bpy.data.objects.new(citizen_name, None)
-        bpy.context.collection.objects.link(root)
-        parent_import_to_root(objects, root)
-        root.location.x = x
-
+        _, top_names = place_character(objects, x, citizen_name)
         armature.name = citizen_name + "_Rig"
         meshes = [o for o in objects if o.type == "MESH"]
         for mesh_index, obj in enumerate(meshes, start=1):
             obj.name = f"{citizen_name}_Mesh_{mesh_index:02d}"
-
         action_span = activate_walk(armature, walk, scene_start, scene_end, phase_offsets[idx])
         scene.frame_set(scene_start)
         bone_names, amplitudes = pose_motion(armature, scene_start, scene_end)
-
+        center = mesh_world_center(meshes)
+        if abs(center[0] - x) > 0.6:
+            raise RuntimeError(f"Character placement failed for {citizen_name}: expected x={x}, center={center}")
         report["citizens"].append({
             "name": citizen_name,
             "source": filename,
+            "expected_x": x,
+            "mesh_world_center": center,
+            "top_level_objects": top_names,
             "walk_action": walk.name,
             "bones": len(armature.data.bones),
             "meshes": len(meshes),
@@ -184,7 +186,6 @@ def main():
 
     create_floor()
     create_camera()
-
     scene.render.engine = "BLENDER_WORKBENCH"
     scene.display.shading.light = "STUDIO"
     scene.display.shading.color_type = "MATERIAL"
@@ -198,7 +199,6 @@ def main():
     scene.render.image_settings.compression = 30
     scene.render.filepath = os.path.join(FRAME_DIR, "frame_")
     scene.frame_set(scene_start)
-
     report.update({
         "blender_version": bpy.app.version_string,
         "license": "CC0 1.0",
@@ -207,15 +207,11 @@ def main():
         "frame_end": scene.frame_end,
         "resolution": [scene.render.resolution_x, scene.render.resolution_y],
         "preview_engine": scene.render.engine,
-        "camera": "orthographic close group view",
     })
-
     with open(os.path.join(ART_DIR, "qc_report.json"), "w", encoding="utf-8") as f:
         json.dump(report, f, indent=2)
-
     bpy.ops.wm.save_as_mainfile(filepath=os.path.join(ART_DIR, "Citizen_Pack_5.blend"))
     bpy.ops.render.render(animation=True)
-
     print("CITIZEN_PACK_POC_PASS")
     print(json.dumps(report, indent=2))
 
