@@ -26,6 +26,7 @@ jobs:
           python3 -m py_compile build_kit.py refine_vehicles.py outbreak_fx_physics_v2.py
           python3 - <<'PY'
           from pathlib import Path
+          import re
 
           p=Path('build_kit.py')
           s=p.read_text()
@@ -35,18 +36,18 @@ jobs:
 
           p=Path('outbreak_fx_physics_v2.py')
           s=p.read_text()
-          initial='''    scene.render.image_settings.file_format = "FFMPEG"\n    scene.render.ffmpeg.format = "MPEG4"\n    scene.render.ffmpeg.codec = "H264"\n    scene.render.ffmpeg.constant_rate_factor = "MEDIUM"\n    scene.render.filepath = str(DEMO_MP4)\n'''
-          s=s.replace(initial, '    scene.render.image_settings.file_format = "PNG"\n')
-          final='''    # Render MP4 proof.\n    scene.render.image_settings.file_format = "FFMPEG"\n    scene.render.ffmpeg.format = "MPEG4"\n    scene.render.ffmpeg.codec = "H264"\n    scene.render.ffmpeg.constant_rate_factor = "MEDIUM"\n    scene.render.filepath = str(DEMO_MP4)\n    scene.frame_set(1)\n    bpy.ops.render.render(animation=True)\n'''
-          replacement='''    # Render an image sequence. GitHub Actions encodes H.264 outside Blender.\n    scene.render.image_settings.file_format = "PNG"\n    scene.render.filepath = str(OUT / "render_frames_v2" / "frame_")\n    scene.frame_set(1)\n    bpy.ops.render.render(animation=True)\n'''
-          if final not in s:
-              raise SystemExit('final render block not found')
-          s=s.replace(final, replacement)
+          s=s.replace('scene.render.image_settings.file_format = "FFMPEG"', 'scene.render.image_settings.file_format = "PNG"')
+          s=re.sub(r'^\s*scene\.render\.ffmpeg\..*\n', '', s, flags=re.M)
+          s=s.replace('scene.render.filepath = str(DEMO_MP4)', 'scene.render.filepath = str(OUT / "render_frames_v2" / "frame_")')
           s=s.replace('    assert DEMO_MP4.exists() and DEMO_MP4.stat().st_size > 20_000\n', '')
-          # Blender 5.2 layered actions do not expose action.fcurves consistently.
-          import re
-          s=re.sub(r'    if car_proxy\.animation_data and car_proxy\.animation_data\.action:\n        for fc in car_proxy\.animation_data\.action\.fcurves:\n            for kp in fc\.keyframe_points:\n                kp\.interpolation = "LINEAR"\n', '', s)
-          s=re.sub(r'    if ball\.animation_data and ball\.animation_data\.action:\n        for fc in ball\.animation_data\.action\.fcurves:\n            for kp in fc\.keyframe_points:\n                kp\.interpolation = "LINEAR"\n', '', s)
+          s=re.sub(
+              r'    if car_proxy\.animation_data and car_proxy\.animation_data\.action:\n(?:        .*\n){1,5}',
+              '', s
+          )
+          s=re.sub(
+              r'    if ball\.animation_data and ball\.animation_data\.action:\n(?:        .*\n){1,5}',
+              '', s
+          )
           p.write_text(s)
           PY
           python3 -m py_compile outbreak_fx_physics_v2.py
@@ -93,8 +94,12 @@ jobs:
           f=json.load(open('fx_physics_ffprobe.json'))
           s=f['streams'][0]
           assert q['rigid_active'] >= 40, q
+          assert q['rigid_passive'] >= 6, q
+          assert q['rigid_constraints'] >= 15, q
           assert q['ragdoll_bodies'] >= 12, q
           assert q['breakable_constraints'] >= 4, q
+          assert q['fluid_domains'] >= 1, q
+          assert q['fluid_flows'] >= 1, q
           assert q['fluid_cache_files'] > 0, q
           assert int(s['width']) == 640 and int(s['height']) == 360, s
           assert int(s['nb_frames']) == 84, s
@@ -113,5 +118,6 @@ jobs:
             fx_physics_qa.json
             fx_physics_ffprobe.json
             qa_frames_v2/*.png
+            outbreak_fx_physics_v2.py
             build.log
             physics.log
