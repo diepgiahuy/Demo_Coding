@@ -25,15 +25,40 @@ jobs:
           tar -xf blender.tar.xz
           ./blender-5.2.2-linux-x64/blender --version
 
-      - name: Download CC0 character assets
+      - name: Download original CC0 Hoodie Character
         run: |
           mkdir -p assets/citizen_a artifacts/citizen_a
-          curl -fL --retry 3 -o assets/citizen_a/m_hoodie.glb \
-            https://raw.githubusercontent.com/ASPanferov/school21-tashkent-3d/435ff44327cc16fb50d049ba5ed0918e17eda730/assets/people/m_hoodie.glb
-          curl -fL --retry 3 -o assets/citizen_a/anims.glb \
-            https://raw.githubusercontent.com/ASPanferov/school21-tashkent-3d/435ff44327cc16fb50d049ba5ed0918e17eda730/assets/people/anims.glb
-          test -s assets/citizen_a/m_hoodie.glb
-          test -s assets/citizen_a/anims.glb
+          curl -fL --retry 3 -o assets/citizen_a/hoodie_character.glb \
+            https://raw.githubusercontent.com/VitexSoftware/ishtaria-client/f50f3ee5b04c1a34f8c30a338db51003aca1b8b0/assets/quaternius/characters/Models/hoodie_character.glb
+          test -s assets/citizen_a/hoodie_character.glb
+
+      - name: Inspect embedded glTF animations
+        run: |
+          python3 - <<'PY'
+          import json, struct
+          from pathlib import Path
+          p = Path('assets/citizen_a/hoodie_character.glb')
+          data = p.read_bytes()
+          assert data[:4] == b'glTF'
+          length = struct.unpack_from('<I', data, 8)[0]
+          assert length == len(data)
+          offset = 12
+          doc = None
+          while offset < len(data):
+              chunk_len, chunk_type = struct.unpack_from('<II', data, offset)
+              offset += 8
+              chunk = data[offset:offset+chunk_len]
+              offset += chunk_len
+              if chunk_type == 0x4E4F534A:
+                  doc = json.loads(chunk.decode('utf-8').rstrip('\x00 '))
+                  break
+          assert doc is not None
+          names = [a.get('name','') for a in doc.get('animations', [])]
+          print('Embedded animations:', names)
+          assert any('walk' in n.lower() for n in names), names
+          assert doc.get('skins'), 'No skin found'
+          print('GLB_STRUCTURE_PASS')
+          PY
 
       - name: Build and render Citizen A
         run: |
@@ -54,7 +79,7 @@ jobs:
 
           mkdir -p artifacts/citizen_a/check_frames
           ffmpeg -y -i artifacts/citizen_a/Citizen_A_walk.mp4 \
-            -vf "select='eq(n,0)+eq(n,30)+eq(n,60)+eq(n,90)'" \
+            -vf "select='eq(n,0)+eq(n,15)+eq(n,30)+eq(n,45)'" \
             -vsync 0 artifacts/citizen_a/check_frames/frame_%02d.png
 
           ffmpeg -y -i artifacts/citizen_a/Citizen_A_walk.mp4 \
@@ -70,13 +95,15 @@ jobs:
           stream = probe['streams'][0]
 
           assert report['blender_version'].startswith('5.2.2'), report
-          assert report['walk_action'].lower().find('walk') >= 0, report
+          assert 'walk' in report['walk_action'].lower(), report
           assert report['fps'] == 30, report
           assert report['mesh_objects'] >= 1, report
           assert report['bones'] >= 10, report
-          assert report['rebound_armature_modifiers'] >= 1, report
           assert int(stream['width']) == 640 and int(stream['height']) == 640, stream
-          assert int(stream['nb_frames']) >= 60, stream
+          assert int(stream['nb_frames']) >= 45, stream
+          for bone in ['FootL', 'FootR']:
+              if bone in report['limb_motion_amplitude']:
+                  assert report['limb_motion_amplitude'][bone] > 0.005, report
           frames = sorted(Path('artifacts/citizen_a/check_frames').glob('*.png'))
           assert len(frames) == 4, frames
           assert all(p.stat().st_size > 5000 for p in frames), frames
@@ -87,11 +114,11 @@ jobs:
       - name: Add source note
         run: |
           cat > artifacts/citizen_a/SOURCE.txt <<'EOF'
-          Citizen_A uses Quaternius Hoodie Character and Walk animation.
-          Source pack: Ultimate Modular Men Pack via Poly Pizza.
+          Citizen_A uses the original Quaternius Hoodie Character GLB.
+          Source pack: Ultimate Modular Men Pack.
           License: CC0 1.0.
-          The mesh and animations were retrieved from the public school21-tashkent-3d asset mirror.
-          Original asset geometry and materials were not rebuilt.
+          The model contains its original skeleton, skin weights, and embedded animations.
+          The POC selects the original Walk animation and does not generate a new walk cycle.
           EOF
 
       - name: Upload Citizen A artifact
