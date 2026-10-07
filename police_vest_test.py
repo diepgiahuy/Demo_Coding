@@ -42,11 +42,11 @@ def find_body(meshes):
     return max(pool, key=lambda o: len(o.data.vertices))
 
 
-def local_bounds(obj):
-    xs = [v.co.x for v in obj.data.vertices]
-    ys = [v.co.y for v in obj.data.vertices]
-    zs = [v.co.z for v in obj.data.vertices]
-    return Vector((min(xs), min(ys), min(zs))), Vector((max(xs), max(ys), max(zs)))
+def world_bounds_raw(obj):
+    pts = [obj.matrix_world @ v.co for v in obj.data.vertices]
+    lo = Vector((min(p.x for p in pts), min(p.y for p in pts), min(p.z for p in pts)))
+    hi = Vector((max(p.x for p in pts), max(p.y for p in pts), max(p.z for p in pts)))
+    return lo, hi
 
 
 def find_bone(arm, exact_names=(), contains=()):
@@ -62,10 +62,9 @@ def find_bone(arm, exact_names=(), contains=()):
     return None
 
 
-def bone_point_in_obj(arm, bone, obj, tail=False):
+def bone_world_point(arm, bone, tail=False):
     p = bone.tail_local if tail else bone.head_local
-    world = arm.matrix_world @ p
-    return obj.matrix_world.inverted() @ world
+    return arm.matrix_world @ p
 
 
 def make_vest(body, arm):
@@ -76,7 +75,7 @@ def make_vest(body, arm):
     vest.name = 'Police_Vest'
     vest.data.name = 'Police_Vest_Mesh'
 
-    lo, hi = local_bounds(body)
+    lo, hi = world_bounds_raw(body)
     size = hi - lo
     h = max(size.z, 1e-5)
 
@@ -85,31 +84,38 @@ def make_vest(body, arm):
     ua_l = find_bone(arm, ('UpperArmL', 'UpperArm.L', 'upper_arm.L'), ('upperarm.l', 'upperarml', 'upper_arm.l'))
     ua_r = find_bone(arm, ('UpperArmR', 'UpperArm.R', 'upper_arm.R'), ('upperarm.r', 'upperarmr', 'upper_arm.r'))
 
-    z_low = lo.z + size.z * 0.45
-    z_high = lo.z + size.z * 0.79
+    # Use actual world-space geometry. GLB nodes may carry object transforms, so
+    # local-space cropping can select nothing even when the body is valid.
+    z_low = lo.z + size.z * 0.34
+    z_high = lo.z + size.z * 0.84
     if hips:
-        hp = bone_point_in_obj(arm, hips, body)
-        z_low = max(z_low, hp.z + size.z * 0.05)
+        hp = bone_world_point(arm, hips)
+        z_low = max(z_low, hp.z + size.z * 0.04)
     if neck:
-        np = bone_point_in_obj(arm, neck, body)
+        np = bone_world_point(arm, neck)
         z_high = min(z_high, np.z - size.z * 0.015)
 
-    x_left = lo.x + size.x * 0.20
-    x_right = hi.x - size.x * 0.20
+    x_left = lo.x + size.x * 0.26
+    x_right = hi.x - size.x * 0.26
     if ua_l and ua_r:
-        xl = bone_point_in_obj(arm, ua_l, body).x
-        xr = bone_point_in_obj(arm, ua_r, body).x
+        xl = bone_world_point(arm, ua_l).x
+        xr = bone_world_point(arm, ua_r).x
         mn, mx = min(xl, xr), max(xl, xr)
-        pad = max(size.x * 0.045, 0.01)
+        # keep inside the shoulder joints to create arm openings
+        pad = max(size.x * 0.03, 0.005)
         x_left = max(lo.x, mn + pad)
         x_right = min(hi.x, mx - pad)
+        if x_left >= x_right:
+            x_left = lo.x + size.x * 0.26
+            x_right = hi.x - size.x * 0.26
 
     bm = bmesh.new()
     bm.from_mesh(vest.data)
     bm.faces.ensure_lookup_table()
     delete_faces = []
     for f in bm.faces:
-        c = f.calc_center_median()
+        local_center = f.calc_center_median()
+        c = body.matrix_world @ local_center
         keep = (z_low <= c.z <= z_high and x_left <= c.x <= x_right)
         if not keep:
             delete_faces.append(f)
@@ -122,9 +128,12 @@ def make_vest(body, arm):
     vest.data.update()
 
     if len(vest.data.polygons) < 20:
-        raise RuntimeError(f'Vest extraction too small: {len(vest.data.polygons)} faces')
+        raise RuntimeError(
+            f'Vest extraction too small: {len(vest.data.polygons)} faces; '
+            f'bodyWorld=({tuple(round(x,4) for x in lo)} -> {tuple(round(x,4) for x in hi)}); '
+            f'crop z={z_low:.4f}:{z_high:.4f}, x={x_left:.4f}:{x_right:.4f}'
+        )
 
-    # One clean material only; body itself remains untouched.
     vest.data.materials.clear()
     mat = bpy.data.materials.new('Police_Vest_MAT')
     mat.diffuse_color = (0.025, 0.045, 0.075, 1.0)
@@ -133,7 +142,6 @@ def make_vest(body, arm):
     for p in vest.data.polygons:
         p.material_index = 0
 
-    # Preserve the original Armature modifier/weights from the duplicated torso.
     arm_mods = [m for m in vest.modifiers if m.type == 'ARMATURE']
     if not arm_mods:
         mod = vest.modifiers.new('Armature', 'ARMATURE')
@@ -142,27 +150,28 @@ def make_vest(body, arm):
         for m in arm_mods:
             m.object = arm
 
-    # Deform first, then keep the vest slightly outside the animated shirt.
     shrink = vest.modifiers.new('Vest_Fit', 'SHRINKWRAP')
     shrink.target = body
     shrink.wrap_method = 'NEAREST_SURFACEPOINT'
     shrink.wrap_mode = 'OUTSIDE_SURFACE'
-    shrink.offset = max(size.z * 0.0065, 0.008)
+    shrink.offset = max(h * 0.018, 0.008)
 
     solid = vest.modifiers.new('Vest_Thickness', 'SOLIDIFY')
-    solid.thickness = max(size.z * 0.006, 0.008)
+    solid.thickness = max(h * 0.014, 0.007)
     solid.offset = 1.0
     solid.use_even_offset = True
 
     bevel = vest.modifiers.new('Vest_Edge_Soften', 'BEVEL')
-    bevel.width = max(size.z * 0.0035, 0.004)
+    bevel.width = max(h * 0.007, 0.003)
     bevel.segments = 2
     bevel.limit_method = 'ANGLE'
 
     return vest, {
-        'z_low': round(z_low, 5), 'z_high': round(z_high, 5),
-        'x_left': round(x_left, 5), 'x_right': round(x_right, 5),
-        'faces': len(vest.data.polygons), 'vertices': len(vest.data.vertices)
+        'world_z_low': round(z_low, 5), 'world_z_high': round(z_high, 5),
+        'world_x_left': round(x_left, 5), 'world_x_right': round(x_right, 5),
+        'faces': len(vest.data.polygons), 'vertices': len(vest.data.vertices),
+        'body_world_lo': [round(v,5) for v in lo],
+        'body_world_hi': [round(v,5) for v in hi]
     }
 
 
@@ -249,7 +258,6 @@ def create_camera(lo, hi):
     data.ortho_scale = h * 1.28
     cam = bpy.data.objects.new('Camera', data)
     bpy.context.collection.objects.link(cam)
-    # 3/4 front view so the vest silhouette is easy to judge.
     cam.location = center + Vector((h * 0.85, -h * 3.0, h * 0.08))
     cam.rotation_euler = (center - cam.location).to_track_quat('-Z', 'Y').to_euler()
     bpy.context.scene.camera = cam
@@ -280,7 +288,6 @@ def main():
 
     scene.render.engine = 'BLENDER_WORKBENCH'
     scene.display.shading.light = 'STUDIO'
-    scene.display.shading.studio_light = 'paint.sl'
     scene.display.shading.color_type = 'MATERIAL'
     scene.display.shading.show_shadows = True
     scene.display.shading.show_cavity = True
@@ -300,7 +307,7 @@ def main():
         'walk_action': walk.name,
         'fps': 60,
         'frame_end': end,
-        'vest_strategy': 'duplicate original rigged torso surface; crop torso faces; preserve original vertex groups + armature modifier; Shrinkwrap outside animated body; Solidify; Bevel',
+        'vest_strategy': 'duplicate original rigged torso surface; crop torso faces in world space; preserve original vertex groups + armature modifier; Shrinkwrap outside animated body; Solidify; Bevel',
         'vest_cut': cut,
         'vest_motion_sample_frames': sample_frames,
         'vest_visible_motion_amplitude': vest_motion,
