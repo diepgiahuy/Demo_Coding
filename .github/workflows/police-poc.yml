@@ -14,8 +14,10 @@ jobs:
       - name: Checkout
         uses: actions/checkout@v4
 
-      - name: Verify runner ffmpeg
-        run: ffmpeg -version | head -1
+      - name: Install minimal runtime packages
+        run: |
+          sudo apt-get update -qq
+          sudo apt-get install -y --no-install-recommends libegl1 ffmpeg
 
       - name: Download Blender 5.2.2
         run: |
