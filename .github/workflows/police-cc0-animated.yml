@@ -1,0 +1,106 @@
+name: Animated CC0 Police POC
+
+on:
+  push:
+    branches: [police-cc0-animated]
+  workflow_dispatch:
+
+jobs:
+  render:
+    runs-on: ubuntu-latest
+    timeout-minutes: 15
+
+    steps:
+      - name: Checkout
+        uses: actions/checkout@v4
+
+      - name: Install minimal runtime packages
+        run: |
+          sudo apt-get update -qq
+          sudo apt-get install -y --no-install-recommends libegl1 ffmpeg
+
+      - name: Download Blender 5.2.2
+        run: |
+          curl -fL --retry 3 -o blender.tar.xz https://download.blender.org/release/Blender5.2/blender-5.2.2-linux-x64.tar.xz
+          tar -xf blender.tar.xz
+          ./blender-5.2.2-linux-x64/blender --version
+
+      - name: Download CC0 body and proven rig
+        run: |
+          mkdir -p assets/police_cc0_anim artifacts/police_cc0_anim
+          curl -fL --retry 3 -o assets/police_cc0_anim/police_tpose_base.glb \
+            https://cdn.3dassets.dev/assets/36385/v1/model.glb
+          curl -fL --retry 3 -o assets/police_cc0_anim/hoodie_character.glb \
+            https://raw.githubusercontent.com/VitexSoftware/ishtaria-client/f50f3ee5b04c1a34f8c30a338db51003aca1b8b0/assets/quaternius/characters/Models/hoodie_character.glb
+          test -s assets/police_cc0_anim/police_tpose_base.glb
+          test -s assets/police_cc0_anim/hoodie_character.glb
+
+      - name: Build and render animated police
+        run: |
+          ./blender-5.2.2-linux-x64/blender --background --python police_cc0_animated.py | tee artifacts/police_cc0_anim/blender.log
+          grep -q POLICE_CC0_ANIM_PASS artifacts/police_cc0_anim/blender.log
+          test -s artifacts/police_cc0_anim/Police_Officer_CC0.blend
+          test -s artifacts/police_cc0_anim/qc_report.json
+          test "$(find artifacts/police_cc0_anim/frames -name 'frame_*.png' | wc -l)" -ge 60
+
+      - name: Encode 60 fps video
+        run: |
+          ffmpeg -y -framerate 60 -pattern_type glob \
+            -i 'artifacts/police_cc0_anim/frames/frame_*.png' \
+            -c:v libx264 -preset medium -crf 18 -pix_fmt yuv420p -movflags +faststart \
+            artifacts/police_cc0_anim/Police_Officer_CC0_walk_60fps.mp4
+
+      - name: Verify outputs
+        run: |
+          ffprobe -v error \
+            -show_entries stream=width,height,nb_frames,r_frame_rate \
+            -show_entries format=duration,size \
+            -of json artifacts/police_cc0_anim/Police_Officer_CC0_walk_60fps.mp4 \
+            > artifacts/police_cc0_anim/ffprobe.json
+
+          python3 - <<'PY'
+          import json
+          from pathlib import Path
+          report = json.loads(Path('artifacts/police_cc0_anim/qc_report.json').read_text())
+          probe = json.loads(Path('artifacts/police_cc0_anim/ffprobe.json').read_text())
+          stream = probe['streams'][0]
+          assert report['blender_version'].startswith('5.2.2'), report
+          assert 'walk' in report['walk_action'].lower(), report
+          assert report['fps'] == 60, report
+          assert report['weighted_bone_group_count'] >= 8, report
+          assert len(report['accessories']) >= 6, report
+          assert int(stream['width']) == 720 and int(stream['height']) == 720, stream
+          assert stream['r_frame_rate'] == '60/1', stream
+          assert int(stream['nb_frames']) >= 60, stream
+          print('POLICE_CC0_VERIFY_PASS')
+          PY
+
+          ffmpeg -y -i artifacts/police_cc0_anim/Police_Officer_CC0_walk_60fps.mp4 \
+            -vf "select='eq(n,0)+eq(n,16)+eq(n,32)+eq(n,48)+eq(n,64)',scale=320:-1,tile=5x1" \
+            -frames:v 1 artifacts/police_cc0_anim/contact_sheet.png
+          test -s artifacts/police_cc0_anim/contact_sheet.png
+
+      - name: Add source note
+        run: |
+          cat > artifacts/police_cc0_anim/SOURCE.txt <<'EOF'
+          Animated low-poly police POC.
+          Body: 3DAssets.dev Low Poly T Pose Reference Figure, asset 36385, CC0 1.0 Universal.
+          Rig + Walk: Quaternius Hoodie Character, CC0 1.0.
+          The body is fitted to the proven Quaternius armature in REST pose and skinned with Blender automatic armature weights.
+          Police appearance uses body material regions plus small cap/belt/badge accessories.
+          No procedural walk, no manual bone-orientation edits, and no animation retargeting are used.
+          Preview is sampled at 60 fps while preserving the original Walk duration.
+          EOF
+
+      - name: Upload artifact
+        uses: actions/upload-artifact@v4
+        with:
+          name: police-cc0-animated-poc
+          path: |
+            artifacts/police_cc0_anim/Police_Officer_CC0.blend
+            artifacts/police_cc0_anim/Police_Officer_CC0_walk_60fps.mp4
+            artifacts/police_cc0_anim/contact_sheet.png
+            artifacts/police_cc0_anim/qc_report.json
+            artifacts/police_cc0_anim/ffprobe.json
+            artifacts/police_cc0_anim/SOURCE.txt
+            artifacts/police_cc0_anim/blender.log
