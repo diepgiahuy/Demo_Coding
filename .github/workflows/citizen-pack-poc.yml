@@ -34,7 +34,7 @@ jobs:
             test -s "assets/citizen_pack/$f"
           done
 
-      - name: Verify skin and Walk in all source assets
+      - name: Verify source skin and Walk
         run: |
           python3 - <<'PY'
           import json, struct
@@ -49,8 +49,7 @@ jobs:
           ]
 
           for name in files:
-              p = Path('assets/citizen_pack') / name
-              data = p.read_bytes()
+              data = (Path('assets/citizen_pack') / name).read_bytes()
               assert data[:4] == b'glTF', name
               assert struct.unpack_from('<I', data, 8)[0] == len(data), name
               offset = 12
@@ -67,79 +66,129 @@ jobs:
               animations = [a.get('name', '') for a in doc.get('animations', [])]
               assert any('walk' in a.lower() for a in animations), (name, animations)
               assert doc.get('skins'), name
-              print(name, 'PASS', [a for a in animations if 'walk' in a.lower()])
+              print(name, 'PASS')
           print('SOURCE_ASSETS_PASS')
           PY
 
-      - name: Build and render five Citizens
+      - name: Build five independent Blender citizens
         run: |
           ./blender-5.2.2-linux-x64/blender --background --python citizen_pack_poc.py | tee artifacts/citizen_pack/blender.log
           grep -q CITIZEN_PACK_POC_PASS artifacts/citizen_pack/blender.log
-          test -s artifacts/citizen_pack/Citizen_Pack_5.blend
           test -s artifacts/citizen_pack/qc_report.json
-          test "$(find artifacts/citizen_pack/frames -name 'frame_*.png' | wc -l)" -eq 33
 
-      - name: Encode MP4
+          for d in \
+            Citizen_A_Hoodie \
+            Citizen_B_Punk \
+            Citizen_C_Casual_Woman \
+            Citizen_D_Suit_Woman \
+            Citizen_E_Worker_Woman; do
+            test -s "artifacts/citizen_pack/$d/$d.blend"
+            test "$(find "artifacts/citizen_pack/$d/frames" -name 'frame_*.png' | wc -l)" -eq 33
+          done
+
+      - name: Encode five walk previews
         run: |
-          ffmpeg -y -framerate 30 -pattern_type glob \
-            -i 'artifacts/citizen_pack/frames/frame_*.png' \
-            -c:v libx264 -preset medium -crf 19 -pix_fmt yuv420p -movflags +faststart \
+          for d in \
+            Citizen_A_Hoodie \
+            Citizen_B_Punk \
+            Citizen_C_Casual_Woman \
+            Citizen_D_Suit_Woman \
+            Citizen_E_Worker_Woman; do
+            ffmpeg -y -framerate 30 -pattern_type glob \
+              -i "artifacts/citizen_pack/$d/frames/frame_*.png" \
+              -c:v libx264 -preset medium -crf 18 -pix_fmt yuv420p -movflags +faststart \
+              "artifacts/citizen_pack/$d/${d}_walk.mp4"
+          done
+
+      - name: Build combined five-person preview
+        run: |
+          ffmpeg -y \
+            -i artifacts/citizen_pack/Citizen_A_Hoodie/Citizen_A_Hoodie_walk.mp4 \
+            -i artifacts/citizen_pack/Citizen_B_Punk/Citizen_B_Punk_walk.mp4 \
+            -i artifacts/citizen_pack/Citizen_C_Casual_Woman/Citizen_C_Casual_Woman_walk.mp4 \
+            -i artifacts/citizen_pack/Citizen_D_Suit_Woman/Citizen_D_Suit_Woman_walk.mp4 \
+            -i artifacts/citizen_pack/Citizen_E_Worker_Woman/Citizen_E_Worker_Woman_walk.mp4 \
+            -filter_complex "[0:v][1:v][2:v][3:v][4:v]hstack=inputs=5[v]" \
+            -map "[v]" -c:v libx264 -preset medium -crf 18 -pix_fmt yuv420p -movflags +faststart \
             artifacts/citizen_pack/Citizen_Pack_5_walk.mp4
 
-      - name: Verify video and build contact sheet
-        run: |
-          ffprobe -v error \
-            -show_entries stream=width,height,nb_frames,r_frame_rate \
-            -show_entries format=duration,size \
-            -of json artifacts/citizen_pack/Citizen_Pack_5_walk.mp4 \
-            > artifacts/citizen_pack/ffprobe.json
+          ffmpeg -y -i artifacts/citizen_pack/Citizen_Pack_5_walk.mp4 \
+            -vf "select='eq(n,0)+eq(n,8)+eq(n,16)+eq(n,24)+eq(n,32)',scale=750:-1,tile=5x1" \
+            -frames:v 1 artifacts/citizen_pack/contact_sheet.png
 
+      - name: Verify all Blender and video outputs
+        run: |
           python3 - <<'PY'
-          import json
+          import json, subprocess
           from pathlib import Path
 
-          report = json.loads(Path('artifacts/citizen_pack/qc_report.json').read_text())
-          probe = json.loads(Path('artifacts/citizen_pack/ffprobe.json').read_text())
-          stream = probe['streams'][0]
-
+          root = Path('artifacts/citizen_pack')
+          report = json.loads((root / 'qc_report.json').read_text())
           assert report['blender_version'].startswith('5.2.2'), report
           assert len(report['citizens']) == 5, report
           assert report['fps'] == 30, report
-          assert int(stream['width']) == 960 and int(stream['height']) == 540, stream
-          assert int(stream['nb_frames']) == 33, stream
+
           for citizen in report['citizens']:
               assert 'walk' in citizen['walk_action'].lower(), citizen
               assert citizen['bones'] >= 10, citizen
               assert citizen['meshes'] >= 1, citizen
+              name = citizen['name']
+              blend = root / name / f'{name}.blend'
+              video = root / name / f'{name}_walk.mp4'
+              assert blend.stat().st_size > 100000, blend
+              assert video.stat().st_size > 5000, video
+
+              out = subprocess.check_output([
+                  'ffprobe', '-v', 'error', '-select_streams', 'v:0',
+                  '-show_entries', 'stream=width,height,nb_frames', '-of', 'json', str(video)
+              ])
+              stream = json.loads(out)['streams'][0]
+              assert int(stream['width']) == 300, stream
+              assert int(stream['height']) == 450, stream
+              assert int(stream['nb_frames']) == 33, stream
+
+          combined = root / 'Citizen_Pack_5_walk.mp4'
+          out = subprocess.check_output([
+              'ffprobe', '-v', 'error', '-select_streams', 'v:0',
+              '-show_entries', 'stream=width,height,nb_frames', '-of', 'json', str(combined)
+          ])
+          stream = json.loads(out)['streams'][0]
+          assert int(stream['width']) == 1500, stream
+          assert int(stream['height']) == 450, stream
+          assert int(stream['nb_frames']) == 33, stream
+          assert (root / 'contact_sheet.png').stat().st_size > 10000
           print('CITIZEN_PACK_VERIFY_PASS')
           PY
-
-          ffmpeg -y -i artifacts/citizen_pack/Citizen_Pack_5_walk.mp4 \
-            -vf "select='eq(n,0)+eq(n,8)+eq(n,16)+eq(n,24)+eq(n,32)',scale=480:-1,tile=5x1" \
-            -frames:v 1 artifacts/citizen_pack/contact_sheet.png
-
-          test -s artifacts/citizen_pack/contact_sheet.png
 
       - name: Add source note
         run: |
           cat > artifacts/citizen_pack/SOURCE.txt <<'EOF'
-          Five Citizen Blender POC.
-          Source assets: Quaternius character models from Ultimate Modular Men / related Quaternius character packs.
+          Five independent Blender Citizen walk POCs.
+          Source assets: Quaternius character models.
           License: CC0 1.0.
-          Models used: hoodie_character, punk, animated_woman, suit_woman, worker_woman.
-          Each source GLB provides its original rig, skin weights, and Walk animation.
-          The Blender scene uses the original Walk action for every citizen.
+          Models: hoodie_character, punk, animated_woman, suit_woman, worker_woman.
+          Each Citizen keeps its original rig, skin weights, and embedded Walk animation.
+          Each Citizen is rendered in its own Blender scene to avoid cross-rig transform interference.
+          The combined MP4 is only a side-by-side preview of the five Blender renders.
           EOF
 
       - name: Upload Citizen Pack artifact
         uses: actions/upload-artifact@v4
         with:
-          name: citizen-pack-5-walk
+          name: citizen-pack-5-independent-walks
           path: |
-            artifacts/citizen_pack/Citizen_Pack_5.blend
+            artifacts/citizen_pack/Citizen_A_Hoodie/Citizen_A_Hoodie.blend
+            artifacts/citizen_pack/Citizen_A_Hoodie/Citizen_A_Hoodie_walk.mp4
+            artifacts/citizen_pack/Citizen_B_Punk/Citizen_B_Punk.blend
+            artifacts/citizen_pack/Citizen_B_Punk/Citizen_B_Punk_walk.mp4
+            artifacts/citizen_pack/Citizen_C_Casual_Woman/Citizen_C_Casual_Woman.blend
+            artifacts/citizen_pack/Citizen_C_Casual_Woman/Citizen_C_Casual_Woman_walk.mp4
+            artifacts/citizen_pack/Citizen_D_Suit_Woman/Citizen_D_Suit_Woman.blend
+            artifacts/citizen_pack/Citizen_D_Suit_Woman/Citizen_D_Suit_Woman_walk.mp4
+            artifacts/citizen_pack/Citizen_E_Worker_Woman/Citizen_E_Worker_Woman.blend
+            artifacts/citizen_pack/Citizen_E_Worker_Woman/Citizen_E_Worker_Woman_walk.mp4
             artifacts/citizen_pack/Citizen_Pack_5_walk.mp4
             artifacts/citizen_pack/contact_sheet.png
             artifacts/citizen_pack/qc_report.json
-            artifacts/citizen_pack/ffprobe.json
             artifacts/citizen_pack/SOURCE.txt
             artifacts/citizen_pack/blender.log
