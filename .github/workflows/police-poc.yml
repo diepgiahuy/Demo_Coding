@@ -1,8 +1,8 @@
-name: Police Blender POC
+name: Police Blender POC V2
 
 on:
   push:
-    branches: [police-poc]
+    branches: [police-poc-v2]
   workflow_dispatch:
 
 jobs:
@@ -25,19 +25,19 @@ jobs:
           tar -xf blender.tar.xz
           ./blender-5.2.2-linux-x64/blender --version
 
-      - name: Download CC0 Quaternius base
+      - name: Download accepted CC0 Hoodie citizen
         run: |
           mkdir -p assets/police_poc artifacts/police_poc
-          curl -fL --retry 3 -o assets/police_poc/character_animated.glb \
-            https://raw.githubusercontent.com/VitexSoftware/ishtaria-client/f50f3ee5b04c1a34f8c30a338db51003aca1b8b0/assets/quaternius/characters/Models/character_animated.glb
-          test -s assets/police_poc/character_animated.glb
+          curl -fL --retry 3 -o assets/police_poc/hoodie_character.glb \
+            https://raw.githubusercontent.com/VitexSoftware/ishtaria-client/f50f3ee5b04c1a34f8c30a338db51003aca1b8b0/assets/quaternius/characters/Models/hoodie_character.glb
+          test -s assets/police_poc/hoodie_character.glb
 
       - name: Verify source Walk and skin
         run: |
           python3 - <<'PY'
           import json, struct
           from pathlib import Path
-          p = Path('assets/police_poc/character_animated.glb')
+          p = Path('assets/police_poc/hoodie_character.glb')
           data = p.read_bytes()
           assert data[:4] == b'glTF'
           assert struct.unpack_from('<I', data, 8)[0] == len(data)
@@ -88,12 +88,14 @@ jobs:
           probe = json.loads(Path('artifacts/police_poc/ffprobe.json').read_text())
           stream = probe['streams'][0]
           assert report['blender_version'].startswith('5.2.2'), report
+          assert report['base_asset'] == 'Quaternius hoodie_character.glb', report
           assert 'walk' in report['walk_action'].lower(), report
           assert report['fps'] == 60, report
-          assert len(report['gear_objects']) >= 10, report
+          assert len(report['gear_objects']) >= 8, report
           assert int(stream['width']) == 720 and int(stream['height']) == 720, stream
           assert stream['r_frame_rate'] == '60/1', stream
           assert int(stream['nb_frames']) >= 60, stream
+          assert min(report['limb_motion_amplitude'].values()) > 0.004, report
           print('POLICE_VERIFY_PASS')
           PY
 
@@ -106,16 +108,17 @@ jobs:
         run: |
           cat > artifacts/police_poc/SOURCE.txt <<'EOF'
           Police Officer POC based on the user's supplied low-poly police/civilian reference.
-          Base character: Quaternius character_animated.glb, CC0 1.0.
-          Skeleton, skin weights, and Walk action remain from the original rigged asset.
-          Police uniform pieces are Blender mesh objects added by script and bone-parented.
-          Walk preview is sampled at 60 fps using the original Walk Action with time scale 2.0.
+          Base character: Quaternius Hoodie Character, CC0 1.0.
+          This is the same citizen family previously visually accepted in the project.
+          Skeleton, skin weights, and embedded Walk action remain unchanged.
+          Police vest, cap, badge, belt, radio and holster are lightweight Blender meshes bone-parented to the original rig.
+          The Walk preview keeps the original action timing while sampling it at 60 fps; no retargeting and no bone-orientation edits.
           EOF
 
       - name: Upload Police artifact
         uses: actions/upload-artifact@v4
         with:
-          name: police-officer-blender-poc
+          name: police-officer-blender-poc-v2
           path: |
             artifacts/police_poc/Police_Officer.blend
             artifacts/police_poc/Police_Officer_walk_60fps.mp4
