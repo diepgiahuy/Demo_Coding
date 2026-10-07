@@ -7,8 +7,10 @@ from mathutils import Vector
 ROOT = os.path.dirname(os.path.abspath(__file__))
 ART = os.path.join(ROOT, "artifacts", "citizen_a")
 ASSET = os.path.join(ROOT, "assets", "citizen_a")
+FRAMES = os.path.join(ART, "frames")
 os.makedirs(ART, exist_ok=True)
 os.makedirs(ASSET, exist_ok=True)
+os.makedirs(FRAMES, exist_ok=True)
 
 MODEL = os.path.join(ASSET, "hoodie_character.glb")
 
@@ -239,12 +241,10 @@ def main():
     scene.render.resolution_y = 640
     scene.render.resolution_percentage = 100
     scene.render.fps = 30
-    scene.render.image_settings.file_format = "FFMPEG"
-    scene.render.ffmpeg.format = "MPEG4"
-    scene.render.ffmpeg.codec = "H264"
-    scene.render.ffmpeg.constant_rate_factor = "MEDIUM"
-    scene.render.ffmpeg.ffmpeg_preset = "GOOD"
-    scene.render.filepath = os.path.join(ART, "Citizen_A_walk.mp4")
+    scene.render.image_settings.file_format = "PNG"
+    scene.render.image_settings.color_mode = "RGBA"
+    scene.render.image_settings.compression = 30
+    scene.render.filepath = os.path.join(FRAMES, "frame_")
 
     sample_frames, amplitudes, samples = bone_samples(armature, start, end)
     scene.frame_set(start)
