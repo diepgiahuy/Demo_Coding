@@ -1,0 +1,91 @@
+name: Police Vest Test
+
+on:
+  push:
+    branches: [police-vest-test]
+  workflow_dispatch:
+
+jobs:
+  render:
+    runs-on: ubuntu-latest
+    timeout-minutes: 15
+    steps:
+      - uses: actions/checkout@v4
+
+      - name: Install runtime
+        run: |
+          sudo apt-get update -qq
+          sudo apt-get install -y --no-install-recommends libegl1 ffmpeg
+
+      - name: Download Blender 5.2.2
+        run: |
+          curl -fL --retry 3 -o blender.tar.xz https://download.blender.org/release/Blender5.2/blender-5.2.2-linux-x64.tar.xz
+          tar -xf blender.tar.xz
+
+      - name: Download proven Quaternius Hoodie base
+        run: |
+          mkdir -p assets/police_vest artifacts/police_vest
+          curl -fL --retry 3 -o assets/police_vest/hoodie_character.glb \
+            https://raw.githubusercontent.com/VitexSoftware/ishtaria-client/f50f3ee5b04c1a34f8c30a338db51003aca1b8b0/assets/quaternius/characters/Models/hoodie_character.glb
+          test -s assets/police_vest/hoodie_character.glb
+
+      - name: Build and render vest test
+        run: |
+          ./blender-5.2.2-linux-x64/blender --background --python police_vest_test.py | tee artifacts/police_vest/blender.log
+          grep -q POLICE_VEST_TEST_PASS artifacts/police_vest/blender.log
+          test -s artifacts/police_vest/Citizen_A_Police_Vest.blend
+          test -s artifacts/police_vest/qc_report.json
+          test "$(find artifacts/police_vest/frames -name 'frame_*.png' | wc -l)" -ge 50
+
+      - name: Encode 60fps preview
+        run: |
+          ffmpeg -y -framerate 60 -pattern_type glob \
+            -i 'artifacts/police_vest/frames/frame_*.png' \
+            -c:v libx264 -preset medium -crf 18 -pix_fmt yuv420p -movflags +faststart \
+            artifacts/police_vest/Citizen_A_Police_Vest_walk_60fps.mp4
+          ffprobe -v error \
+            -show_entries stream=width,height,nb_frames,r_frame_rate \
+            -show_entries format=duration,size \
+            -of json artifacts/police_vest/Citizen_A_Police_Vest_walk_60fps.mp4 \
+            > artifacts/police_vest/ffprobe.json
+
+      - name: Make visual QC
+        run: |
+          ffmpeg -y -i artifacts/police_vest/Citizen_A_Police_Vest_walk_60fps.mp4 \
+            -vf "select='eq(n,0)+eq(n,16)+eq(n,32)+eq(n,48)+eq(n,64)',scale=300:-1,tile=5x1" \
+            -frames:v 1 artifacts/police_vest/contact_sheet.png
+          ffmpeg -y -i artifacts/police_vest/Citizen_A_Police_Vest_walk_60fps.mp4 \
+            -vf "select='eq(n,32)'" -frames:v 1 artifacts/police_vest/frame32.png
+          test -s artifacts/police_vest/contact_sheet.png
+          test -s artifacts/police_vest/frame32.png
+
+      - name: Verify output
+        run: |
+          python3 - <<'PY'
+          import json
+          from pathlib import Path
+          r=json.loads(Path('artifacts/police_vest/qc_report.json').read_text())
+          p=json.loads(Path('artifacts/police_vest/ffprobe.json').read_text())
+          s=p['streams'][0]
+          assert r['fps']==60, r
+          assert r['no_retarget'] and r['no_auto_weight'] and r['no_bone_edits'], r
+          assert r['vest_cut']['faces'] >= 20, r
+          assert r['vest_visible_motion_amplitude'] > 0.02, r
+          assert s['r_frame_rate']=='60/1', s
+          assert int(s['width'])==720 and int(s['height'])==720, s
+          assert int(s['nb_frames'])>=50, s
+          print('POLICE_VEST_VERIFY_PASS')
+          PY
+
+      - name: Upload artifact
+        uses: actions/upload-artifact@v4
+        with:
+          name: police-vest-test
+          path: |
+            artifacts/police_vest/Citizen_A_Police_Vest.blend
+            artifacts/police_vest/Citizen_A_Police_Vest_walk_60fps.mp4
+            artifacts/police_vest/contact_sheet.png
+            artifacts/police_vest/frame32.png
+            artifacts/police_vest/qc_report.json
+            artifacts/police_vest/ffprobe.json
+            artifacts/police_vest/blender.log
