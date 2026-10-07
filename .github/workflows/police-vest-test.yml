@@ -30,8 +30,8 @@ jobs:
 
       - name: Build and render vest test
         run: |
-          ./blender-5.2.2-linux-x64/blender --background --python police_vest_test.py | tee artifacts/police_vest/blender.log
-          grep -q POLICE_VEST_TEST_PASS artifacts/police_vest/blender.log
+          ./blender-5.2.2-linux-x64/blender --background --python police_vest_test_v2.py | tee artifacts/police_vest/blender.log
+          grep -q POLICE_VEST_V2_PASS artifacts/police_vest/blender.log
           test -s artifacts/police_vest/Citizen_A_Police_Vest.blend
           test -s artifacts/police_vest/qc_report.json
           test "$(find artifacts/police_vest/frames -name 'frame_*.png' | wc -l)" -ge 50
@@ -44,15 +44,16 @@ jobs:
           r=json.loads(Path('artifacts/police_vest/qc_report.json').read_text())
           assert r['fps']==60, r
           assert r['no_retarget'] and r['no_auto_weight'] and r['no_bone_edits'], r
-          assert r['vest_cut']['faces'] >= 20, r
-          assert r['vest_visible_motion_amplitude'] > 0.02, r
+          assert r['vest']['faces'] >= 30, r
+          assert 0.02 < r['vest_motion'] < 2.0, r
+          assert r['vest_to_character_diag_ratio'] < 0.9, r
           print('POLICE_VEST_BLENDER_VERIFY_PASS')
           PY
 
       - name: Upload Blender output and frames
         uses: actions/upload-artifact@v4
         with:
-          name: police-vest-test-fast
+          name: police-vest-test-v2
           path: |
             artifacts/police_vest/Citizen_A_Police_Vest.blend
             artifacts/police_vest/qc_report.json
