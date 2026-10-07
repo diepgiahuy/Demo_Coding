@@ -148,7 +148,7 @@ def assign_smooth_walk_60fps(armature, action):
     span = max(1.0, end - start)
     track = ad.nla_tracks.new()
     track.name = "Walk_60fps"
-    strip = track.strips.new("Walk", 0.0, action)
+    strip = track.strips.new("Walk", 0, action)
     strip.action_frame_start = start
     strip.action_frame_end = end
     strip.scale = 2.0
