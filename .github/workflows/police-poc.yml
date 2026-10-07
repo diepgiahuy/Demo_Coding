@@ -8,16 +8,14 @@ on:
 jobs:
   render:
     runs-on: ubuntu-latest
-    timeout-minutes: 15
+    timeout-minutes: 12
 
     steps:
       - name: Checkout
         uses: actions/checkout@v4
 
-      - name: Install runtime packages
-        run: |
-          sudo apt-get update
-          sudo apt-get install -y libegl1 libgl1 libx11-xcb1 libxcb1 libxkbcommon0 ffmpeg
+      - name: Verify runner ffmpeg
+        run: ffmpeg -version | head -1
 
       - name: Download Blender 5.2.2
         run: |
