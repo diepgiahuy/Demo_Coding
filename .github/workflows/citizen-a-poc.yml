@@ -1,0 +1,109 @@
+name: Citizen A Blender POC
+
+on:
+  push:
+    branches: [citizen-a-poc]
+  workflow_dispatch:
+
+jobs:
+  render:
+    runs-on: ubuntu-latest
+    timeout-minutes: 15
+
+    steps:
+      - name: Checkout
+        uses: actions/checkout@v4
+
+      - name: Install runtime packages
+        run: |
+          sudo apt-get update
+          sudo apt-get install -y libegl1 libgl1 libx11-xcb1 libxcb1 libxkbcommon0 ffmpeg
+
+      - name: Download Blender 5.2.2
+        run: |
+          curl -fL --retry 3 -o blender.tar.xz https://download.blender.org/release/Blender5.2/blender-5.2.2-linux-x64.tar.xz
+          tar -xf blender.tar.xz
+          ./blender-5.2.2-linux-x64/blender --version
+
+      - name: Download CC0 character assets
+        run: |
+          mkdir -p assets/citizen_a artifacts/citizen_a
+          curl -fL --retry 3 -o assets/citizen_a/m_hoodie.glb \
+            https://raw.githubusercontent.com/ASPanferov/school21-tashkent-3d/435ff44327cc16fb50d049ba5ed0918e17eda730/assets/people/m_hoodie.glb
+          curl -fL --retry 3 -o assets/citizen_a/anims.glb \
+            https://raw.githubusercontent.com/ASPanferov/school21-tashkent-3d/435ff44327cc16fb50d049ba5ed0918e17eda730/assets/people/anims.glb
+          test -s assets/citizen_a/m_hoodie.glb
+          test -s assets/citizen_a/anims.glb
+
+      - name: Build and render Citizen A
+        run: |
+          ./blender-5.2.2-linux-x64/blender --background --python citizen_a_poc.py | tee artifacts/citizen_a/blender.log
+          grep -q CITIZEN_A_POC_PASS artifacts/citizen_a/blender.log
+
+      - name: Verify outputs
+        run: |
+          test -s artifacts/citizen_a/Citizen_A.blend
+          test -s artifacts/citizen_a/Citizen_A_walk.mp4
+          test -s artifacts/citizen_a/qc_report.json
+
+          ffprobe -v error \
+            -show_entries stream=width,height,nb_frames,r_frame_rate \
+            -show_entries format=duration,size \
+            -of json artifacts/citizen_a/Citizen_A_walk.mp4 \
+            > artifacts/citizen_a/ffprobe.json
+
+          mkdir -p artifacts/citizen_a/check_frames
+          ffmpeg -y -i artifacts/citizen_a/Citizen_A_walk.mp4 \
+            -vf "select='eq(n,0)+eq(n,30)+eq(n,60)+eq(n,90)'" \
+            -vsync 0 artifacts/citizen_a/check_frames/frame_%02d.png
+
+          ffmpeg -y -i artifacts/citizen_a/Citizen_A_walk.mp4 \
+            -vf "fps=1,scale=320:-1,tile=4x1" -frames:v 1 \
+            artifacts/citizen_a/contact_sheet.png
+
+          python3 - <<'PY'
+          import json
+          from pathlib import Path
+
+          report = json.loads(Path('artifacts/citizen_a/qc_report.json').read_text())
+          probe = json.loads(Path('artifacts/citizen_a/ffprobe.json').read_text())
+          stream = probe['streams'][0]
+
+          assert report['blender_version'].startswith('5.2.2'), report
+          assert report['walk_action'].lower().find('walk') >= 0, report
+          assert report['fps'] == 30, report
+          assert report['mesh_objects'] >= 1, report
+          assert report['bones'] >= 10, report
+          assert report['rebound_armature_modifiers'] >= 1, report
+          assert int(stream['width']) == 640 and int(stream['height']) == 640, stream
+          assert int(stream['nb_frames']) >= 60, stream
+          frames = sorted(Path('artifacts/citizen_a/check_frames').glob('*.png'))
+          assert len(frames) == 4, frames
+          assert all(p.stat().st_size > 5000 for p in frames), frames
+          assert Path('artifacts/citizen_a/contact_sheet.png').stat().st_size > 10000
+          print('CITIZEN_A_VERIFY_PASS')
+          PY
+
+      - name: Add source note
+        run: |
+          cat > artifacts/citizen_a/SOURCE.txt <<'EOF'
+          Citizen_A uses Quaternius Hoodie Character and Walk animation.
+          Source pack: Ultimate Modular Men Pack via Poly Pizza.
+          License: CC0 1.0.
+          The mesh and animations were retrieved from the public school21-tashkent-3d asset mirror.
+          Original asset geometry and materials were not rebuilt.
+          EOF
+
+      - name: Upload Citizen A artifact
+        uses: actions/upload-artifact@v4
+        with:
+          name: citizen-a-walk-poc
+          path: |
+            artifacts/citizen_a/Citizen_A.blend
+            artifacts/citizen_a/Citizen_A_walk.mp4
+            artifacts/citizen_a/contact_sheet.png
+            artifacts/citizen_a/check_frames/*.png
+            artifacts/citizen_a/qc_report.json
+            artifacts/citizen_a/ffprobe.json
+            artifacts/citizen_a/SOURCE.txt
+            artifacts/citizen_a/blender.log
