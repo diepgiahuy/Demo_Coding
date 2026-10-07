@@ -67,31 +67,53 @@ def activate_walk(armature, action, scene_start, scene_end, phase):
     return action_span
 
 
-def place_character(objects, x, citizen_name):
+def top_level_objects(objects):
     imported = set(objects)
-    top_level = [o for o in objects if o.parent not in imported]
-    if not top_level:
-        raise RuntimeError(f"No top-level objects for {citizen_name}")
-    for obj in top_level:
-        obj.location.x += x
-    bpy.context.view_layer.update()
-    return [o.name for o in top_level]
+    result = [o for o in objects if o.parent not in imported]
+    if not result:
+        raise RuntimeError("No top-level objects found")
+    return result
 
 
-def mesh_world_center(meshes):
+def offset_top_level(objects, dx):
+    for obj in objects:
+        obj.location.x += dx
     bpy.context.view_layer.update()
+
+
+def evaluated_mesh_bounds(meshes):
+    bpy.context.view_layer.update()
+    depsgraph = bpy.context.evaluated_depsgraph_get()
     points = []
     for obj in meshes:
-        for corner in obj.bound_box:
-            points.append(obj.matrix_world @ Vector(corner))
+        evaluated = obj.evaluated_get(depsgraph)
+        temp_mesh = evaluated.to_mesh()
+        try:
+            world = evaluated.matrix_world
+            for vertex in temp_mesh.vertices:
+                points.append(world @ vertex.co)
+        finally:
+            evaluated.to_mesh_clear()
     if not points:
-        return [0.0, 0.0, 0.0]
-    center = Vector((
-        (min(p.x for p in points) + max(p.x for p in points)) * 0.5,
-        (min(p.y for p in points) + max(p.y for p in points)) * 0.5,
-        (min(p.z for p in points) + max(p.z for p in points)) * 0.5,
-    ))
-    return [round(v, 4) for v in center]
+        raise RuntimeError("No evaluated mesh vertices found")
+    lo = Vector((min(p.x for p in points), min(p.y for p in points), min(p.z for p in points)))
+    hi = Vector((max(p.x for p in points), max(p.y for p in points), max(p.z for p in points)))
+    center = (lo + hi) * 0.5
+    return {
+        "min": [round(v, 4) for v in lo],
+        "max": [round(v, 4) for v in hi],
+        "center": [round(v, 4) for v in center],
+    }
+
+
+def place_from_rendered_geometry(top_objects, meshes, desired_x):
+    before = evaluated_mesh_bounds(meshes)
+    dx = desired_x - before["center"][0]
+    offset_top_level(top_objects, dx)
+    after = evaluated_mesh_bounds(meshes)
+    if abs(after["center"][0] - desired_x) > 0.05:
+        raise RuntimeError(f"Rendered placement failed: desired={desired_x}, bounds={after}")
+    return round(dx, 4), before, after
 
 
 def pose_motion(armature, start, end):
@@ -113,7 +135,7 @@ def pose_motion(armature, start, end):
                 raise RuntimeError(f"Invalid pose: {armature.name} {name} frame={frame}")
             positions.append(p.copy())
         amplitudes[name] = round(max((a-b).length for a in positions for b in positions), 6)
-    if sum(1 for v in amplitudes.values() if v > 0.005) < 2:
+    if sum(1 for value in amplitudes.values() if value > 0.005) < 2:
         raise RuntimeError(f"Limb motion check failed for {armature.name}: {amplitudes}")
     return all_names, amplitudes
 
@@ -149,30 +171,32 @@ def main():
     report = {"citizens": []}
     phase_offsets = [0, 6, 12, 18, 24]
 
-    for idx, (citizen_name, filename, x) in enumerate(CITIZENS):
+    for idx, (citizen_name, filename, desired_x) in enumerate(CITIZENS):
         objects, actions = import_glb(os.path.join(ASSET_DIR, filename))
         armature = find_armature(objects)
         walk = find_walk_action(actions)
-        top_names = place_character(objects, x, citizen_name)
-        armature.name = citizen_name + "_Rig"
+        tops = top_level_objects(objects)
         meshes = [o for o in objects if o.type == "MESH"]
+        armature.name = citizen_name + "_Rig"
         for mesh_index, obj in enumerate(meshes, start=1):
             obj.name = f"{citizen_name}_Mesh_{mesh_index:02d}"
         action_span = activate_walk(armature, walk, scene_start, scene_end, phase_offsets[idx])
         scene.frame_set(scene_start)
         bpy.context.view_layer.update()
+        placement_dx, bounds_before, bounds_after = place_from_rendered_geometry(tops, meshes, desired_x)
         bone_names, amplitudes = pose_motion(armature, scene_start, scene_end)
         scene.frame_set(scene_start)
         bpy.context.view_layer.update()
-        center = mesh_world_center(meshes)
-        if abs(center[0] - x) > 0.6:
-            raise RuntimeError(f"Character placement failed for {citizen_name}: expected x={x}, center={center}")
+        final_bounds = evaluated_mesh_bounds(meshes)
         report["citizens"].append({
             "name": citizen_name,
             "source": filename,
-            "expected_x": x,
-            "mesh_world_center": center,
-            "top_level_objects": top_names,
+            "desired_x": desired_x,
+            "placement_dx": placement_dx,
+            "rendered_bounds_before": bounds_before,
+            "rendered_bounds_after": bounds_after,
+            "rendered_bounds_final_frame0": final_bounds,
+            "top_level_objects": [o.name for o in tops],
             "walk_action": walk.name,
             "bones": len(armature.data.bones),
             "meshes": len(meshes),
