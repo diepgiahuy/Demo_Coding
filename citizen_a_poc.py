@@ -234,7 +234,7 @@ def main():
     scene.frame_start = start
     scene.frame_end = end
     scene.frame_set(start)
-    scene.render.engine = "BLENDER_EEVEE_NEXT"
+    scene.render.engine = "BLENDER_EEVEE"
     scene.render.resolution_x = 640
     scene.render.resolution_y = 640
     scene.render.resolution_percentage = 100
