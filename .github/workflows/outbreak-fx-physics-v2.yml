@@ -40,14 +40,9 @@ jobs:
           s=re.sub(r'^\s*scene\.render\.ffmpeg\..*\n', '', s, flags=re.M)
           s=s.replace('scene.render.filepath = str(DEMO_MP4)', 'scene.render.filepath = str(OUT / "render_frames_v2" / "frame_")')
           s=s.replace('    assert DEMO_MP4.exists() and DEMO_MP4.stat().st_size > 20_000\n', '')
-          s=re.sub(
-              r'    if car_proxy\.animation_data and car_proxy\.animation_data\.action:\n(?:        .*\n){1,5}',
-              '', s
-          )
-          s=re.sub(
-              r'    if ball\.animation_data and ball\.animation_data\.action:\n(?:        .*\n){1,5}',
-              '', s
-          )
+          s=s.replace('    scene.world.color = (.035, .045, .06)\n', '    if scene.world is None:\n        scene.world = bpy.data.worlds.new("World_Demo_V2")\n    scene.world.color = (.035, .045, .06)\n')
+          s=re.sub(r'    if car_proxy\.animation_data and car_proxy\.animation_data\.action:\n(?:        .*\n){1,5}', '', s)
+          s=re.sub(r'    if ball\.animation_data and ball\.animation_data\.action:\n(?:        .*\n){1,5}', '', s)
           p.write_text(s)
           PY
           python3 -m py_compile outbreak_fx_physics_v2.py
