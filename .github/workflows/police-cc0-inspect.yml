@@ -1,0 +1,62 @@
+name: Inspect CC0 Police Model
+
+on:
+  push:
+    branches: [police-cc0-rigid]
+  workflow_dispatch:
+
+jobs:
+  inspect:
+    runs-on: ubuntu-latest
+    timeout-minutes: 10
+
+    steps:
+      - name: Checkout
+        uses: actions/checkout@v4
+
+      - name: Install minimal Blender runtime
+        run: |
+          sudo apt-get update -qq
+          sudo apt-get install -y --no-install-recommends libegl1
+
+      - name: Download Blender 5.2.2
+        run: |
+          curl -fL --retry 3 -o blender.tar.xz https://download.blender.org/release/Blender5.2/blender-5.2.2-linux-x64.tar.xz
+          tar -xf blender.tar.xz
+          ./blender-5.2.2-linux-x64/blender --version
+
+      - name: Download CC0 police model
+        run: |
+          mkdir -p assets/police_cc0 artifacts/police_cc0
+          curl -fL --retry 3 -o assets/police_cc0/police_static.glb \
+            https://cdn.3dassets.dev/assets/36370/v1/model.glb
+          test -s assets/police_cc0/police_static.glb
+
+      - name: Inspect model in Blender
+        run: |
+          ./blender-5.2.2-linux-x64/blender --background --python inspect_police_cc0.py | tee artifacts/police_cc0/blender.log
+          grep -q POLICE_CC0_INSPECT_PASS artifacts/police_cc0/blender.log
+          test -s artifacts/police_cc0/inspection.json
+          test -s artifacts/police_cc0/police_static_preview.png
+          test -s artifacts/police_cc0/Police_Static_Separated.blend
+
+      - name: Verify useful rigid segmentation
+        run: |
+          python3 - <<'PY'
+          import json
+          from pathlib import Path
+          report = json.loads(Path('artifacts/police_cc0/inspection.json').read_text())
+          print('Loose parts:', report['loose_part_count'])
+          assert report['loose_part_count'] >= 8, report['loose_part_count']
+          print('RIGID_SEGMENTATION_CANDIDATE_PASS')
+          PY
+
+      - name: Upload inspection
+        uses: actions/upload-artifact@v4
+        with:
+          name: police-cc0-inspection
+          path: |
+            artifacts/police_cc0/inspection.json
+            artifacts/police_cc0/police_static_preview.png
+            artifacts/police_cc0/Police_Static_Separated.blend
+            artifacts/police_cc0/blender.log
