@@ -34,20 +34,20 @@ def mat(name, color, rough=0.72, metal=0.0):
     m.metallic = metal
     return m
 
-SKIN = mat('Skin_Warm_Beige', (0.68, 0.39, 0.21), 0.82)
-NAVY = mat('Police_Navy', (0.020, 0.040, 0.105), 0.78)
-NAVY2 = mat('Police_Navy_Trim', (0.012, 0.026, 0.070), 0.80)
-VEST = mat('Vest_Black_Navy', (0.012, 0.014, 0.022), 0.88)
-BLACK = mat('Boot_Belt_Charcoal', (0.018, 0.018, 0.022), 0.86)
-BLACK2 = mat('Accessory_Charcoal', (0.030, 0.032, 0.038), 0.80)
+SKIN = mat('Skin_Warm_Beige', (0.78, 0.50, 0.30), 0.82)
+NAVY = mat('Police_Navy', (0.028, 0.060, 0.145), 0.78)
+NAVY2 = mat('Police_Navy_Trim', (0.018, 0.040, 0.095), 0.80)
+VEST = mat('Vest_Black_Navy', (0.020, 0.023, 0.032), 0.88)
+BLACK = mat('Boot_Belt_Charcoal', (0.028, 0.029, 0.034), 0.86)
+BLACK2 = mat('Accessory_Charcoal', (0.040, 0.043, 0.050), 0.80)
 HAIR = mat('Hair_Dark_Brown', (0.060, 0.030, 0.020), 0.90)
-GOLD = mat('Badge_Gold', (0.78, 0.43, 0.07), 0.38, 0.12)
+GOLD = mat('Badge_Gold', (0.90, 0.58, 0.10), 0.38, 0.12)
 GRAY = mat('Radio_Grille', (0.16, 0.17, 0.19), 0.72)
 
 created = []
 def register(o): created.append(o); return o
 
-def apply_bevel(o, width=0.012, segments=1):
+def apply_bevel(o, width=0.012, segments=2):
     if width <= 0: return
     mod = o.modifiers.new('Edge_Soften', 'BEVEL')
     mod.width = width; mod.segments = segments; mod.limit_method = 'ANGLE'; mod.angle_limit = math.radians(20)
@@ -59,7 +59,7 @@ def apply_bevel(o, width=0.012, segments=1):
 def mesh_obj(name, verts, faces, material, bevel=0.0):
     me = bpy.data.meshes.new(name + '_Mesh'); me.from_pydata(verts, [], faces); me.update()
     o = bpy.data.objects.new(name, me); bpy.context.collection.objects.link(o); o.data.materials.append(material)
-    apply_bevel(o, bevel, 1); return register(o)
+    apply_bevel(o, bevel, 2); return register(o)
 
 def frustum_box(name, z0, z1, w0, w1, d0, d1, material, cx=0, cy=0, bevel=0.01):
     v=[(cx-w0/2,cy-d0/2,z0),(cx+w0/2,cy-d0/2,z0),(cx+w0/2,cy+d0/2,z0),(cx-w0/2,cy+d0/2,z0),
@@ -70,7 +70,7 @@ def frustum_box(name, z0, z1, w0, w1, d0, d1, material, cx=0, cy=0, bevel=0.01):
 def box(name, loc, dims, material, bevel=0.01, rot=(0,0,0)):
     bpy.ops.mesh.primitive_cube_add(size=1, location=loc, rotation=rot)
     o=bpy.context.object; o.name=name; o.dimensions=dims; bpy.ops.object.transform_apply(location=False,rotation=False,scale=True)
-    o.data.materials.append(material); apply_bevel(o,bevel,1); return register(o)
+    o.data.materials.append(material); apply_bevel(o,bevel,2); return register(o)
 
 def cyl(name, loc, radius, depth, material, vertices=10, rot=(0,0,0), scale=(1,1,1)):
     bpy.ops.mesh.primitive_cylinder_add(vertices=vertices,radius=radius,depth=depth,location=loc,rotation=rot)
@@ -108,36 +108,36 @@ def foot_wedge(name,cx,z0,material):
 
 foot_wedge('Boot_L',-.13,.02,BLACK); foot_wedge('Boot_R',.13,.02,BLACK)
 box('Boot_Cuff_L',(-.13,.015,.215),(.18,.20,.14),BLACK,.012); box('Boot_Cuff_R',(.13,.015,.215),(.18,.20,.14),BLACK,.012)
-frustum_box('Pant_Shin_L',.25,.57,.17,.185,.19,.20,NAVY,cx=-.13,bevel=.012); frustum_box('Pant_Shin_R',.25,.57,.17,.185,.19,.20,NAVY,cx=.13,bevel=.012)
-frustum_box('Pant_Thigh_L',.56,.90,.185,.205,.20,.225,NAVY,cx=-.13,bevel=.014); frustum_box('Pant_Thigh_R',.56,.90,.185,.205,.20,.225,NAVY,cx=.13,bevel=.014)
-frustum_box('Police_Pelvis',.86,1.00,.38,.43,.24,.26,NAVY,bevel=.014)
+frustum_box('Pant_Shin_L',.25,.56,.18,.195,.20,.21,NAVY,cx=-.13,bevel=.012); frustum_box('Pant_Shin_R',.25,.56,.18,.195,.20,.21,NAVY,cx=.13,bevel=.012)
+frustum_box('Pant_Thigh_L',.55,.90,.195,.22,.21,.235,NAVY,cx=-.13,bevel=.014); frustum_box('Pant_Thigh_R',.55,.90,.195,.22,.21,.235,NAVY,cx=.13,bevel=.014)
+frustum_box('Police_Pelvis',.86,1.00,.40,.45,.25,.27,NAVY,bevel=.014)
 box('Cargo_L',(-.235,-.108,.69),(.105,.035,.16),NAVY2,.009); box('Cargo_R',(.235,-.108,.69),(.105,.035,.16),NAVY2,.009)
 box('Knee_L',(-.13,-.102,.54),(.155,.025,.07),NAVY2,.007); box('Knee_R',(.13,-.102,.54),(.155,.025,.07),NAVY2,.007)
-frustum_box('Police_Shirt_Torso',.96,1.42,.42,.52,.26,.29,NAVY,bevel=.018)
-cyl('Neck',(0,0,1.46),.085,.12,SKIN,vertices=10,scale=(1,.92,1))
+frustum_box('Police_Shirt_Torso',.98,1.39,.44,.56,.27,.31,NAVY,bevel=.018)
+cyl('Neck',(0,0,1.435),.09,.11,SKIN,vertices=10,scale=(1,.92,1))
 extruded_poly_y('Collar_L',[(-.13,1.405),(-.015,1.405),(-.04,1.31),(-.17,1.36)],-.157,.018,NAVY2,.003)
 extruded_poly_y('Collar_R',[(.015,1.405),(.13,1.405),(.17,1.36),(.04,1.31)],-.157,.018,NAVY2,.003)
 extruded_poly_y('Collar_Skin_V',[(-.035,1.405),(.035,1.405),(0,1.34)],-.168,.012,SKIN,.002)
 for side,s in [('L',-1),('R',1)]:
-    shoulder=(s*.285,0,1.34); elbow=(s*.335,0,1.13); wrist=(s*.35,-.002,.93)
-    cylinder_between('Sleeve_'+side,shoulder,elbow,.079,NAVY,8,(1,.92)); cylinder_between('Sleeve_Cuff_'+side,(s*.329,0,1.15),(s*.339,0,1.105),.082,NAVY2,8,(1,.92)); cylinder_between('Forearm_'+side,elbow,wrist,.070,SKIN,8,(.96,.90)); box('Hand_'+side,(s*.355,-.006,.865),(.115,.11,.16),SKIN,.028)
+    shoulder=(s*.305,0,1.31); elbow=(s*.35,0,1.115); wrist=(s*.36,-.002,.93)
+    cylinder_between('Sleeve_'+side,shoulder,elbow,.086,NAVY,8,(1,.92)); cylinder_between('Sleeve_Cuff_'+side,(s*.329,0,1.15),(s*.339,0,1.105),.088,NAVY2,8,(1,.92)); cylinder_between('Forearm_'+side,elbow,wrist,.078,SKIN,8,(.96,.90)); box('Hand_'+side,(s*.355,-.006,.865),(.13,.12,.16),SKIN,.028)
 
-bpy.ops.mesh.primitive_uv_sphere_add(segments=12,ring_count=7,radius=1,location=(0,-.006,1.61))
-head=bpy.context.object; head.name='Head_Faceless'; head.scale=(.195,.165,.205); bpy.ops.object.transform_apply(location=False,rotation=False,scale=True)
+bpy.ops.mesh.primitive_ico_sphere_add(subdivisions=2,radius=1,location=(0,-.006,1.595))
+head=bpy.context.object; head.name='Head_Faceless'; head.scale=(.215,.190,.220); bpy.ops.object.transform_apply(location=False,rotation=False,scale=True)
 for v in head.data.vertices:
-    if v.co.y<-.10: v.co.y=-.10+(v.co.y+.10)*.34
+    if v.co.y<-.135: v.co.y=-.135+(v.co.y+.135)*.45
 head.data.materials.append(SKIN); register(head)
-cyl('Ear_L',(-.198,0,1.61),.038,.045,SKIN,vertices=8,rot=(0,math.radians(90),0),scale=(1,1,1.15)); cyl('Ear_R',(.198,0,1.61),.038,.045,SKIN,vertices=8,rot=(0,math.radians(90),0),scale=(1,1,1.15))
-box('Hair_Back',(0,.105,1.675),(.31,.115,.18),HAIR,.035); box('Hair_Left',(-.145,.018,1.67),(.075,.13,.17),HAIR,.025,rot=(0,0,math.radians(-8))); box('Hair_Right',(.145,.018,1.67),(.075,.13,.17),HAIR,.025,rot=(0,0,math.radians(8)))
+cyl('Ear_L',(-.214,0,1.595),.040,.050,SKIN,vertices=8,rot=(0,math.radians(90),0),scale=(1,1,1.18)); cyl('Ear_R',(.214,0,1.595),.040,.050,SKIN,vertices=8,rot=(0,math.radians(90),0),scale=(1,1,1.18))
+box('Hair_Back',(0,.115,1.655),(.34,.13,.18),HAIR,.035); box('Hair_Left',(-.165,.020,1.65),(.08,.14,.17),HAIR,.025,rot=(0,0,math.radians(-8))); box('Hair_Right',(.165,.020,1.65),(.08,.14,.17),HAIR,.025,rot=(0,0,math.radians(8)))
 extruded_poly_y('Hair_Front',[(-.16,1.74),(-.08,1.765),(-.015,1.72),(.05,1.755),(.15,1.73),(.13,1.65),(-.13,1.65)],-.105,.045,HAIR,.006)
-elliptical_frustum('Police_Cap_Crown',1.73,1.875,.205,.165,.225,.175,NAVY,12); elliptical_frustum('Police_Cap_Band',1.70,1.755,.206,.166,.208,.168,NAVY2,12)
-brim_pts=[(-.185,-.145,1.735),(.185,-.145,1.735),(.145,-.295,1.705),(-.145,-.295,1.705),(-.185,-.145,1.705),(.185,-.145,1.705),(.145,-.295,1.682),(-.145,-.295,1.682)]
+elliptical_frustum('Police_Cap_Crown',1.70,1.825,.215,.172,.235,.182,NAVY,12); elliptical_frustum('Police_Cap_Band',1.675,1.725,.216,.173,.218,.175,NAVY2,12)
+brim_pts=[(-.195,-.145,1.705),(.195,-.145,1.705),(.155,-.305,1.680),(-.155,-.305,1.680),(-.195,-.145,1.680),(.195,-.145,1.680),(.155,-.305,1.657),(-.155,-.305,1.657)]
 brim_faces=[(0,1,2,3),(4,7,6,5),(0,4,5,1),(1,5,6,2),(2,6,7,3),(3,7,4,0)]; mesh_obj('Police_Cap_Brim',brim_pts,brim_faces,NAVY2,.006)
-shield=[(-.048,1.835),(-.034,1.87),(0,1.892),(.034,1.87),(.048,1.835),(.032,1.79),(0,1.77),(-.032,1.79)]; extruded_poly_y('Cap_Badge',shield,-.175,.018,GOLD,.003)
-extruded_poly_y('Vest_Front_L',[(-.22,1.37),(-.025,1.37),(-.025,1.00),(-.22,1.00)],-.171,.068,VEST,.012); extruded_poly_y('Vest_Front_R',[(.025,1.37),(.22,1.37),(.22,1.00),(.025,1.00)],-.171,.068,VEST,.012); extruded_poly_y('Vest_Back',[(-.22,1.37),(.22,1.37),(.22,1.00),(-.22,1.00)],.171,.060,VEST,.012)
-box('Vest_Strap_L',(-.165,0,1.39),(.075,.34,.055),VEST,.009); box('Vest_Strap_R',(.165,0,1.39),(.075,.34,.055),VEST,.009)
+shield=[(-.045,1.775),(-.032,1.805),(0,1.823),(.032,1.805),(.045,1.775),(.030,1.738),(0,1.720),(-.030,1.738)]; extruded_poly_y('Cap_Badge',shield,-.182,.018,GOLD,.003)
+extruded_poly_y('Vest_Front_L',[(-.205,1.34),(-.025,1.34),(-.025,1.02),(-.225,1.02)],-.171,.068,VEST,.012); extruded_poly_y('Vest_Front_R',[(.025,1.34),(.205,1.34),(.225,1.02),(.025,1.02)],-.171,.068,VEST,.012); extruded_poly_y('Vest_Back',[(-.205,1.34),(.205,1.34),(.225,1.02),(-.225,1.02)],.171,.060,VEST,.012)
+box('Vest_Strap_L',(-.17,0,1.36),(.075,.34,.055),VEST,.009); box('Vest_Strap_R',(.17,0,1.36),(.075,.34,.055),VEST,.009)
 for x in (-.13,0,.13):
-    box('Vest_Pouch_%+.2f'%x,(x,-.222,1.055),(.105,.055,.105),BLACK2,.010); box('Vest_Pouch_Flap_%+.2f'%x,(x,-.254,1.085),(.11,.014,.045),VEST,.006)
+    box('Vest_Pouch_%+.2f'%x,(x,-.218,1.065),(.10,.050,.09),BLACK2,.010); box('Vest_Pouch_Flap_%+.2f'%x,(x,-.254,1.085),(.11,.014,.045),VEST,.006)
 shield2=[(.075,1.30),(.09,1.325),(.12,1.34),(.15,1.325),(.165,1.30),(.152,1.255),(.12,1.235),(.088,1.255)]; extruded_poly_y('Chest_Badge',shield2,-.218,.014,GOLD,.0025)
 box('Radio',(-.145,-.225,1.285),(.085,.050,.135),BLACK2,.009)
 for i,z in enumerate((1.305,1.285,1.265)): box('Radio_Grille_%d'%i,(-.145,-.253,z),(.054,.008,.009),GRAY,.002)
@@ -153,7 +153,7 @@ for o in list(created):
     for c in list(o.users_collection):
         if c!=char_col: c.objects.unlink(o)
 
-cam_data=bpy.data.cameras.new('Reference_Camera'); cam_data.type='ORTHO'; cam_data.ortho_scale=2.15
+cam_data=bpy.data.cameras.new('Reference_Camera'); cam_data.type='ORTHO'; cam_data.ortho_scale=2.08
 cam=bpy.data.objects.new('Reference_Camera',cam_data); scene.collection.objects.link(cam); scene.camera=cam
 
 def set_camera(angle_deg,dist=5.0):
@@ -163,7 +163,7 @@ views=[('front',0),('three_quarter',35),('side',90),('back',180),('three_quarter
 for name,ang in views:
     set_camera(ang); scene.render.filepath=os.path.join(VIEWS,name+'.png'); bpy.ops.render.render(write_still=True)
 set_camera(0)
-report={'reference_target':'single canonical stylized low-poly patrol police sheet generated in-chat','build':'from-scratch master mesh; no Hoodie/Punk final geometry','style':'faceted low-poly, faceless, navy shirt/pants, black vest/belt/boots, gold badges','views':[v[0] for v in views],'mesh_object_count':sum(1 for o in created if o.type=='MESH'),'material_count':len(bpy.data.materials),'overall_height_m':1.90,'parts':['faceless head','dark hair','police cap + cap badge','police shirt + collar','short sleeves','bare forearms + hands','black vest front/back + shoulder straps','chest badge','radio + antenna','duty belt + buckle + pouches + holster','navy cargo pants','black boots'],'rigged':False,'animation':False,'purpose':'visual shape approval before rigging'}
+report={'reference_target':'single canonical stylized low-poly patrol police sheet generated in-chat','build':'from-scratch master mesh; no Hoodie/Punk final geometry','style':'faceted low-poly, faceless, navy shirt/pants, black vest/belt/boots, gold badges','views':[v[0] for v in views],'mesh_object_count':sum(1 for o in created if o.type=='MESH'),'material_count':len(bpy.data.materials),'overall_height_m':1.83,'parts':['faceless head','dark hair','police cap + cap badge','police shirt + collar','short sleeves','bare forearms + hands','black vest front/back + shoulder straps','chest badge','radio + antenna','duty belt + buckle + pouches + holster','navy cargo pants','black boots'],'rigged':False,'animation':False,'purpose':'visual shape approval before rigging'}
 with open(os.path.join(ART,'qc_report.json'),'w',encoding='utf-8') as f: json.dump(report,f,indent=2)
 bpy.ops.wm.save_as_mainfile(filepath=os.path.join(ART,'Police_Officer_Reference.blend'))
 print('POLICE_REFERENCE_BUILD_PASS'); print(json.dumps(report,indent=2))
