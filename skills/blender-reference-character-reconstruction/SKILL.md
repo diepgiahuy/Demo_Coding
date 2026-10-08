@@ -1,98 +1,132 @@
-# Blender Reference Character Reconstruction Skill
-
-## Purpose
-Build a reusable 3D character from one or more user-supplied reference images, with the goal of matching the reference as closely as possible in **shape, proportions, silhouette, materials, accessories and style from every important view**.
-
-Use this skill when the user says things like:
-- "build this exact character"
-- "make the Blender model look like this image"
-- "reconstruct this character in 3D"
-- "collect all assets/parts needed from this image and build the full character"
-
-This is a **visual reconstruction workflow**. It is different from the generic NPC modular pipeline. For high-fidelity reference matching, the reference image is the visual authority and a new master mesh may be required.
-
+---
+name: blender-reference-character-reconstruction
+description: Reconstruct a user-supplied character reference as a real editable Blender 3D asset, including asset collection, custom modeling, five-view QC, .blend delivery, and optional rig/animation.
+version: 1.1.0
+updated: 2026-10-08
+project: blender
 ---
 
-## Core rule
-**Do not start rigging or animation until the static character matches the reference from the required views.**
+# Blender Reference Character Reconstruction
 
-The workflow is:
+## 0. Outcome
+
+Use this skill when the user provides one or more character images and asks to build the same character in Blender.
+
+This is not an image-description skill and not an asset-list-only skill.
+
+Unless the user explicitly asks only for planning/research, the task is not complete until there is a real editable `.blend` plus rendered visual proof.
+
+Default workflow:
 
 ```text
 user reference
--> analyze visible design
--> create canonical asset inventory
--> fill missing-view assumptions
--> collect/source reusable parts where appropriate
--> build static master mesh
--> render turnaround
--> compare against reference
--> refine until approved
--> only then rig + animate
+→ analyze visible design
+→ create component inventory
+→ collect/reuse/custom-build decisions
+→ define hidden-view assumptions
+→ lock style and palette
+→ build actual 3D static master in Blender
+→ render five canonical views
+→ visually inspect and refine
+→ save .blend
+→ rig only after static approval
+→ animate only after deformation approval
 ```
 
----
+# 1. Governing rules
 
-## 1. Reference intake
+## Reference controls appearance
 
-### 1.1 Treat the user image as the primary visual source
-Extract the following from the image before modeling:
-- body proportions
-- head/body ratio
-- shoulder width
-- torso length
-- arm and leg thickness
-- hand/foot scale
-- silhouette
-- clothing layers
-- material/color blocks
-- visible seams/panels
-- hair/headwear
-- accessories
-- character style: realistic / stylized / low-poly / blocky / toon
+The user image is the visual authority.
 
-Do not silently replace the style with the closest stock asset.
-
-### 1.2 Determine reference completeness
-Classify available information:
+Do not replace the target style with the nearest stock character because that stock asset already has a rig.
 
 ```text
-A. front only
-B. front + 3/4
-C. front + side + back
-D. full turnaround / model sheet
-E. source 3D model exists
+REFERENCE CONTROLS APPEARANCE
+RIG CONTROLS MOTION
+DO NOT LET THE RIG CHOOSE THE APPEARANCE
 ```
 
-If only one image exists, every invisible surface must be explicitly treated as a **reconstruction assumption**, not factual source data.
+## Static match before rigging
 
-### 1.3 Missing-view completion
-Before 3D modeling, define missing areas:
-- back of head/hair
-- back and sides of clothing
+Final rigging must not begin until the static character passes:
+
+- FRONT
+- 3/4 FRONT
+- SIDE
+- BACK
+- 3/4 BACK
+
+## Visual QC overrides CI
+
+A successful script/workflow proves only that the script ran.
+
+A character is successful only after actual rendered frames are inspected.
+
+# 2. Reference intake
+
+Extract:
+
+- head/body ratio
+- shoulder width
+- torso length and taper
+- hip width
+- arm/leg thickness
+- hand/foot scale
+- hair/headwear silhouette
+- clothing layers
+- material/color blocks
+- pockets/panels
+- straps/belts
+- role props
+- overall art style
+
+Classify reference completeness:
+
+```text
+A — front only
+B — front + 3/4
+C — front + side + back
+D — full turnaround/model sheet
+E — exact source 3D model exists
+```
+
+Anything not visible is a reconstruction decision, not verified source information.
+
+# 3. Hidden-view completion
+
+Before final modeling, define missing areas such as:
+
+- back of hair/headwear
 - garment thickness
-- side silhouette
-- shoe sole and heel
-- belt rear layout
-- accessory rear surfaces
-- hidden straps and connections
+- side/back of vest or jacket
+- rear belt layout
+- hidden straps
+- heel/sole
+- accessory rear faces
+- chest/back depth
 
-If needed, create a canonical concept/turnaround sheet for the project. This sheet becomes the design contract for parts not visible in the original image.
+Label every component decision as one of:
 
-Important: an AI-generated or reconstructed turnaround is a **design decision**, not proof that the original hidden surfaces looked that way.
+```text
+EXACT SOURCE
+VISIBLE REFERENCE
+REUSABLE PROJECT PART
+EXTERNAL LICENSED PART
+CUSTOM BUILD
+DESIGN ASSUMPTION
+```
 
----
+Never present a DESIGN ASSUMPTION as source fact.
 
-## 2. Mandatory asset inventory before building
+# 4. Mandatory component inventory
 
-Before opening Blender, create a complete part inventory.
-
-### Standard human master inventory
+Create the inventory before modeling.
 
 ```text
 BODY
 - Head
-- Ears
+- Ear_L / Ear_R
 - Neck
 - Torso
 - UpperArm_L / UpperArm_R
@@ -104,13 +138,13 @@ BODY
 - Foot_L / Foot_R
 
 HEAD / HAIR
-- Hair_Back
-- Hair_Side_L / Hair_Side_R
 - Hair_Front
-- Hat/Cap pieces if present
+- Hair_Side_L / Hair_Side_R
+- Hair_Back
+- Hat/Cap/Helmet pieces
 
 CLOTHING
-- Shirt_Torso
+- Shirt/Jacket_Torso
 - Collar_L / Collar_R
 - Sleeve_L / Sleeve_R
 - Sleeve_Cuff_L / Sleeve_Cuff_R
@@ -123,223 +157,436 @@ OUTER GEAR
 - Vest_Front_L
 - Vest_Front_R
 - Vest_Back
-- Vest_Strap_L
-- Vest_Strap_R
-- clips / flaps / pockets / panels
+- Shoulder_Strap_L / Shoulder_Strap_R
+- clips
+- pockets
+- panels
 
 ACCESSORIES
-- belt
-- buckle
-- radio
-- antenna
-- badge
-- holster
-- pouches
-- straps
+- Belt
+- Buckle
+- Radio
+- Antenna
+- Badge
+- Holster
+- Pouches
+- Backpack
 - role-specific props
 ```
 
-For every new character, remove unused items and add reference-specific pieces.
+Remove unused pieces and add character-specific ones.
 
-### Asset inventory deliverable
-Create one visual inventory image containing:
-1. assembled front character,
-2. front / 3/4 / side / back turnaround,
-3. exploded or isolated major components,
-4. material/color swatches,
-5. labels for every build component.
+# 5. Asset collection protocol
 
-This image is the build checklist for another agent.
+Do not search for one complete character and force it to fit.
 
----
-
-## 3. Asset collection protocol
-
-Do not search randomly for a complete character and force it to fit.
-
-For each inventory component, use this priority order:
+Collect by component in this priority order:
 
 ```text
-1. Original/source asset of the exact character, if identifiable and legally usable.
-2. Same creator / same asset pack / same art style component.
-3. Existing project component already visually compatible.
-4. CC0 / permissively licensed component with matching shape/style.
-5. Custom-build the component from the reference.
+1. exact source asset of the character, legally usable
+2. same creator / same pack / same art style part
+3. existing project part that visually matches
+4. permissively licensed external part
+5. custom-build from the reference
 ```
 
-### What should be sourced vs custom-built
-Source assets when they save time **without changing the silhouette**:
-- standard radio
+Usually worth sourcing when they do not change silhouette:
+
+- generic radio
 - belt buckle
-- generic pouch
+- simple pouch
 - boot sole base
 - simple cap base
-- compatible skeleton / animation source
+- compatible skeleton
+- compatible animation
 
-Custom-build when the reference identity depends on the exact shape:
+Usually custom-build when identity depends on shape:
+
 - head silhouette
-- torso silhouette
-- vest shape
 - hair silhouette
-- cap silhouette
-- main pants silhouette
-- characteristic accessories
+- torso
+- main shirt/jacket
+- vest
+- cap/helmet silhouette
+- pants silhouette
+- characteristic props
 
-### Never collect assets by visual similarity alone
 For every external asset record:
-- asset name
-- source URL
-- creator
-- license
-- intended component
-- whether it is used directly, modified, or only used as reference
-
-Recommended manifest format:
 
 ```json
 {
-  "component": "Police_Radio",
-  "source": "...",
-  "creator": "...",
-  "license": "CC0",
-  "use": "reference-or-direct",
-  "status": "approved"
+  "component": "ComponentName",
+  "source": "https://...",
+  "creator": "Creator",
+  "license": "CC0 / permissive / ...",
+  "use": "direct | modified | reference-only",
+  "status": "approved | rejected"
 }
 ```
 
-Never assume a public download is reusable without checking its license.
+Never assume public download means reusable.
 
----
+# 6. Style lock
 
-## 4. Style lock before geometry
+Write a short style contract before detail modeling.
 
-Create a small written style spec:
+Example for the current city/outbreak project:
 
 ```text
 STYLE: stylized low-poly
 FACE: faceless/minimal
-HEAD: oversized vs realistic human
+HEAD: slightly oversized
 TORSO: compact/blocky
-LIMBS: chunky, not stick-thin
+LIMBS: chunky, never stick-thin
 EDGES: lightly beveled
-SURFACES: mostly flat planes
-MATERIALS: solid color / low texture noise
-DETAIL LEVEL: silhouette first, micro-detail second
+SURFACES: readable flat planes
+MATERIALS: mostly solid colors
+DETAIL: silhouette first, micro-detail second
 ```
 
-Then define a fixed palette with material names and RGB/hex targets.
+Do not mix a realistic tactical asset into a stylized target simply because it is detailed.
 
-Once the style is approved, do not mix in realistic geometry or tactical-game assets that violate it.
+# 7. Blender build strategy
 
----
+## 7.1 Static major masses first
 
-## 5. Static modeling workflow
+Build:
 
-### Step 1 — blockout only
-Build only major masses:
 - head
 - torso
 - pelvis
 - upper/lower arms
+- hands
 - upper/lower legs
 - feet
 
-Render front + side + 3/4 immediately.
+Render front, side and 3/4 immediately.
 
-Do not add accessories yet.
+Fix silhouette before details.
 
-### Step 2 — match silhouette
-Adjust until the following match the reference:
-- total height ratio
-- head size
-- shoulder width
-- torso taper
-- hip width
-- limb thickness
-- hand size
-- shoe size
+## 7.2 Clothing may be the visible body
 
-Silhouette mismatch must be fixed before detail work.
-
-### Step 3 — replace body areas with clothing geometry
-For stylized low-poly characters, clothing often **is the visible body surface**.
+For opaque stylized clothing, the garment may replace hidden body surfaces.
 
 Prefer:
-- `Police_Shirt_Torso` instead of body torso + thick shirt shell
-- `Police_Pants_Thigh` instead of body leg + floating trouser shell
 
-Avoid unnecessary hidden body geometry under opaque clothing.
+```text
+Police_Shirt_Torso
+Police_Pants_Thigh_L
+Police_Pants_Thigh_R
+```
 
-### Step 4 — outer gear
-Add vest, cap, belt and major accessories only after the base silhouette passes.
+instead of stacking thick shells over unnecessary hidden body geometry.
 
-### Step 5 — detail hierarchy
-Add details in this order:
+## 7.3 Detail hierarchy
 
 ```text
 large silhouette-changing pieces
--> medium panels/pockets
--> role-defining props
--> small clips/seams
+→ medium panels/pockets
+→ role-defining props
+→ small clips/seams
 ```
 
-Never spend time on micro-detail while head/torso/limb proportions are still wrong.
+Do not polish small accessories while proportions are wrong.
 
----
+## 7.4 Primitive rule
 
-## 6. Geometry rules for this project
+Boxes, cylinders, frustums and extruded polygons are valid construction tools and blockout primitives.
 
-For the current stylized low-poly project:
-- Use clean low-poly topology.
-- Favor readable planar surfaces.
-- Use bevels only to soften critical silhouette edges.
-- No subdivision unless specifically required.
-- Avoid crude large cubes as final costume geometry.
-- Primitive meshes are acceptable for early blockout only.
-- Final character parts must be shaped to the reference silhouette.
-- Keep left/right symmetry where the reference is symmetrical.
-- Keep accessories as separate named objects when modularity helps.
+They are not automatically acceptable final geometry.
 
-### Naming convention
+Final visible geometry must be reshaped until its silhouette matches the reference.
+
+## 7.5 Deterministic Python build pattern
+
+The police reference build used an empty Blender scene plus a Python builder.
+
+Useful helper concepts:
+
+```python
+make_material(...)
+box(...)
+cylinder(...)
+frustum_box(...)
+extruded_polygon(...)
+elliptical_frustum(...)
+camera_for_view(...)
+render_view(...)
+```
+
+Scripting is used for repeatability and deterministic assembly, not as an excuse for crude geometry.
+
+# 8. POLICE CASE STUDY — what failed and why the final method worked
+
+This section is mandatory reading before building a new reference character.
+
+## Target
+
+Stylized patrol officer:
+
+- faceless low-poly head
+- slightly oversized head
+- short dark hair
+- navy patrol cap
+- navy short-sleeve shirt
+- compact black vest
+- gold badge
+- radio
+- duty belt
+- holster/pouches
+- navy pants
+- black boots
+- chunky stylized limbs
+
+## Failure A — use Quaternius SWAT directly
+
+What passed technically:
+
+- clean mesh
+- original rig
+- original skin weights
+- original Walk
+
+Why it failed:
+
+- SWAT/tactical silhouette
+- helmet/gear language
+- too militarized
+- did not match patrol-police reference
+
+Lesson:
 
 ```text
-CHR_<Role>_<Part>_<Side>
+GOOD RIG ≠ CORRECT CHARACTER
 ```
 
-Examples:
+## Failure B — put crude primitive police gear on a stock body
+
+What passed:
+
+- gear followed body
+
+Why it failed:
+
+- vest looked like attached plates
+- accessories looked pasted on
+- target silhouette was wrong
+
+Lesson:
+
+Primitive blockout must be reshaped before final use.
+
+## Failure C — swap parts between imported characters/armatures
+
+What happened:
+
+- body parts shifted to wrong positions
+- imported object/bind transforms differed
+- CI could pass while the frame visibly failed
+
+Lesson:
+
+Never assume compatible packs share identical imported transform/bind spaces. Verify the rendered result.
+
+## Failure D — rebuild a walking body from rigid primitive bone pieces
+
+What happened:
+
+- movement followed bones
+- visual proportions became mechanical and worse
+
+Lesson:
+
+Do not sacrifice the approved visual target for animation convenience.
+
+## Successful change in strategy
+
+The key realization was:
 
 ```text
-CHR_Police_Head
-CHR_Police_VestFront_L
-CHR_Police_UpperArm_R
-CHR_Police_Radio
+STOP FORCING AN ANIMATED STOCK BODY TO BECOME THE REFERENCE.
+BUILD THE REFERENCE FIRST.
 ```
 
----
+The successful static police proof started from an empty Blender scene and created the target geometry part-by-part.
 
-## 7. Canonical view QC
+Actual build order:
 
-A character is not approved from one attractive render.
+```text
+1. boots
+2. boot cuffs
+3. shins
+4. thighs
+5. pelvis
+6. police shirt torso
+7. neck
+8. collar
+9. sleeves
+10. forearms
+11. hands
+12. faceless head
+13. ears
+14. hair
+15. cap crown
+16. cap band
+17. cap brim
+18. cap badge
+19. vest front L/R
+20. vest back
+21. vest shoulder straps
+22. vest pouches
+23. chest badge
+24. radio
+25. radio grille/antenna
+26. belt
+27. buckle
+28. holster
+29. belt pouches
+30. cargo/knee panels
+```
 
-Mandatory static QC views:
-- FRONT
-- 3/4 FRONT
-- SIDE
-- BACK
-- 3/4 BACK
+Then the workflow rendered:
 
-Use consistent camera scale and lighting.
+```text
+FRONT
+3/4 FRONT
+SIDE
+BACK
+3/4 BACK
+```
 
-### Overlay QC
-When a corresponding reference view exists:
-1. render the Blender model at matching camera orientation,
-2. overlay the render against the reference,
-3. compare silhouette and landmarks,
-4. correct geometry,
-5. repeat.
+The actual rendered frames were inspected, then the geometry was refined:
 
-Priority landmarks:
-- top of head/cap
+- head enlarged
+- body thickened
+- cap lowered/widened
+- limbs thickened
+- vest silhouette cleaned
+
+That is why this approach worked better: **the reference controlled geometry instead of the stock rig controlling geometry.**
+
+# 9. Police example inventory
+
+```text
+HEAD
+- Head_Faceless
+- Ear_L
+- Ear_R
+- Hair_Front
+- Hair_Side_L
+- Hair_Side_R
+- Hair_Back
+- Police_Cap_Crown
+- Police_Cap_Band
+- Police_Cap_Brim
+- Cap_Badge
+
+UPPER BODY
+- Neck
+- Police_Shirt_Torso
+- Collar_L
+- Collar_R
+- Sleeve_L
+- Sleeve_R
+- Sleeve_Cuff_L
+- Sleeve_Cuff_R
+- Forearm_L
+- Forearm_R
+- Hand_L
+- Hand_R
+
+VEST
+- Vest_Front_L
+- Vest_Front_R
+- Vest_Back
+- Vest_Strap_L
+- Vest_Strap_R
+- Vest_Clip_L
+- Vest_Clip_R
+- Vest_Pouch_01
+- Vest_Pouch_02
+- Vest_Pouch_03
+
+POLICE DETAILS
+- Chest_Badge
+- Radio
+- Radio_Grille
+- Radio_Antenna
+
+BELT
+- Belt
+- Buckle
+- Holster
+- Pouch_L
+- Pouch_R
+- Rear_Pouch
+
+LOWER BODY
+- Police_Pelvis
+- Pant_Thigh_L
+- Pant_Thigh_R
+- Pant_Shin_L
+- Pant_Shin_R
+- Cargo_L
+- Cargo_R
+- Knee_L
+- Knee_R
+- Boot_L
+- Boot_R
+- Boot_Cuff_L
+- Boot_Cuff_R
+```
+
+# 10. Reference implementation in the Blender project
+
+Repository:
+
+```text
+diepgiahuy/Demo_Coding
+```
+
+Concrete implementation:
+
+```text
+branch: police-ref-build
+builder: police_reference_build.py
+workflow: .github/workflows/police-reference-build.yml
+output: Police_Officer_Reference.blend
+```
+
+Another agent with repository access should inspect this implementation before building a new reference character.
+
+Use it to learn:
+
+- empty-scene setup
+- deterministic named-part generation
+- material creation
+- multi-view camera setup
+- render output
+- QC/report generation
+- `.blend` saving
+
+Do not blindly copy police geometry for another role.
+
+# 11. Five-view QC
+
+Mandatory:
+
+```text
+FRONT
+3/4 FRONT
+SIDE
+BACK
+3/4 BACK
+```
+
+Use consistent camera scale/lighting.
+
+When matching source views exist, overlay render and reference.
+
+Compare:
+
+- top of head/hat
 - chin
 - shoulders
 - elbows
@@ -350,56 +597,49 @@ Priority landmarks:
 - ankles
 - toe tip
 
-Do not claim a percentage match without a defined comparison method.
+Fix silhouette before surface detail.
 
----
+# 12. Static approval gate
 
-## 8. Approval gate before rigging
+Do not rig until:
 
-Static model must pass all of the following:
-- overall character reads as the same design immediately,
-- front silhouette approved,
-- side silhouette approved,
-- back design coherent,
-- 3/4 transition coherent,
-- head size approved,
-- clothing proportions approved,
-- accessory positions approved,
-- material palette approved,
-- no obviously floating components.
+- character reads immediately as the same design
+- front passes
+- side passes
+- back is coherent
+- 3/4 transitions are coherent
+- head size passes
+- clothing proportions pass
+- accessory locations pass
+- palette passes
+- no obvious floating/intersecting components
 
-Only after this gate should rigging begin.
-
----
-
-## 9. Rigging and animation phase
-
-For animation, prefer the proven project skeleton/Walk pipeline where possible, but do **not** distort the final model merely to preserve a stock body.
-
-Safe order:
+# 13. Rigging after static approval
 
 ```text
-approved static master mesh
--> choose/prove skeleton
--> fit skeleton inside final mesh
--> bind carefully
--> validate deformation
--> apply original/proven Walk when compatible
--> render motion QC
+approved static master
+→ choose/prove skeleton
+→ fit skeleton to final character
+→ bind carefully
+→ test deformation
+→ reuse proven Walk if compatible
+→ render motion QC
 ```
 
-### Hard animation rules
-- Never call auto-weighting successful without visual deformation checks.
-- Never invent a walk if a proven compatible Walk exists.
-- Do not alter the approved visual silhouette just to make rigging easier.
-- Do not retarget blindly.
-- Check wrists, elbows, knees, ankles and shoulders at multiple frames.
+The project may reuse Quaternius animation data as a motion source, but final visual geometry must not be distorted to become a Quaternius stock body.
 
----
+Do not:
 
-## 10. Mandatory build outputs
+- blindly auto-weight and call it done
+- blindly retarget
+- invent a procedural walk if a compatible proven Walk exists
+- change approved proportions just to fit a rig
 
-Every completed character task should return:
+Check shoulders, elbows, wrists, knees, ankles, foot contact, root motion and loop continuity.
+
+# 14. Mandatory deliverables
+
+Static:
 
 ```text
 <Character>.blend
@@ -413,114 +653,51 @@ asset_manifest.json
 qc_report.json
 ```
 
-If animated:
+Animated additionally:
 
 ```text
 <Character>_walk_60fps.mp4
 ```
 
-The `.blend` must contain real editable 3D meshes/materials and, when requested, rig/animation. Do not substitute AI images or billboards for the final 3D character.
+The `.blend` must contain real editable 3D meshes/materials.
 
----
+# 15. Definition of DONE
 
-## 11. Handoff package for another agent
+DONE only when:
 
-When the user says "build this other character", first return a pre-build package containing:
+1. component inventory exists
+2. source/license/use decisions are recorded
+3. hidden surfaces are labeled source vs assumption
+4. actual Blender geometry exists
+5. `.blend` opens
+6. five-view renders exist
+7. contact sheet was visually inspected
+8. obvious silhouette problems were corrected
+9. if animated, deformation was visually checked
+10. success is not based only on CI/script output
 
-### A. One canonical asset inventory image
-Show all required parts and the full assembled target.
+# 16. Handoff instruction for another agent
 
-### B. Character build spec
-Include:
-- target style
-- proportions
-- palette
-- object list
-- source/reuse candidates
-- custom-build parts
-- assumptions for hidden surfaces
-
-### C. Asset source manifest
-Clearly distinguish:
-- `EXACT SOURCE`
-- `REUSABLE PROJECT PART`
-- `EXTERNAL LICENSED PART`
-- `CUSTOM BUILD`
-- `DESIGN ASSUMPTION`
-
-Then the build agent can execute without re-inventing the design.
-
----
-
-## 12. Police reference example from this project
-
-For the current stylized patrol police reference, the canonical component set is:
+Provide:
 
 ```text
-HEAD
-- faceless low-poly head
-- ears
-- short dark hair: front / sides / back
-- patrol cap crown
-- cap band
-- cap brim
-- cap badge
-
-UPPER BODY
-- neck
-- navy police shirt torso
-- split collar L/R
-- short sleeves L/R
-- sleeve cuffs L/R
-- skin forearms L/R
-- hands L/R
-
-VEST
-- front panel L
-- front panel R
-- back panel
-- shoulder straps L/R
-- vest clips
-- three front pouches
-
-POLICE DETAILS
-- chest badge
-- shoulder/chest radio
-- radio grille
-- radio antenna
-
-BELT
-- belt
-- buckle
-- holster
-- left pouch
-- right pouch
-- rear pouch as needed
-
-LOWER BODY
-- navy pelvis
-- thigh L/R
-- shin L/R
-- cargo pockets L/R
-- knee panels L/R
-- black boot L/R
-- boot cuffs L/R
+A. original user reference(s)
+B. this SKILL.md
+C. component inventory
+D. style/palette spec
+E. asset_manifest.json
+F. hidden-view assumptions
+G. reference implementation path
 ```
 
-This component map should be used as the template for future role characters: replace the role-specific clothing/accessories while preserving the same asset-inventory-first workflow.
+Recommended prompt:
 
----
-
-## Definition of DONE
-
-A build is DONE only when:
-1. the complete part inventory exists,
-2. source/license decisions are recorded,
-3. static model passes five-view visual QC,
-4. `.blend` exists and opens,
-5. all final visible parts are actual 3D meshes/materials,
-6. contact sheet is visually inspected,
-7. if animated, deformation is visually checked across the motion,
-8. no claim of success is based only on script/CI output.
-
-**Visual QC overrides CI success.**
+```text
+Use blender-reference-character-reconstruction.
+Do not stop at planning.
+Build the real Blender asset.
+Treat my image as the visual authority.
+Read the police case study and inspect the reference builder.
+Use police only as a workflow example, not as geometry to copy.
+Return the .blend plus five-view QC renders.
+```
