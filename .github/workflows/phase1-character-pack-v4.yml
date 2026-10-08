@@ -1,0 +1,117 @@
+name: Phase1 Character Asset Pack V4
+
+on:
+  push:
+    branches: [phase1-character-pack-v4]
+
+jobs:
+  build:
+    runs-on: ubuntu-latest
+    timeout-minutes: 15
+    steps:
+      - uses: actions/checkout@v4
+      - name: Install Blender runtime
+        run: sudo apt-get update -qq && sudo apt-get install -y --no-install-recommends libegl1
+      - name: Download Blender
+        run: |
+          curl -fL --retry 3 -o blender.tar.xz https://download.blender.org/release/Blender5.2/blender-5.2.2-linux-x64.tar.xz
+          tar -xf blender.tar.xz
+      - name: Write builder
+        run: |
+          cat > phase1_pack_v4.py <<'PY'
+          import bpy, math, os, json
+          from mathutils import Vector
+          OUT='artifacts/phase1_character_pack_v4'; V=OUT+'/views'; os.makedirs(V,exist_ok=True)
+          bpy.ops.wm.read_factory_settings(use_empty=True); s=bpy.context.scene
+          s.render.engine='BLENDER_WORKBENCH'; s.display.shading.light='STUDIO'; s.display.shading.studio_light='paint.sl'; s.display.shading.color_type='MATERIAL'; s.display.shading.show_shadows=True; s.display.shading.show_cavity=True; s.display.shading.cavity_type='WORLD'; s.display.shading.background_type='VIEWPORT'; s.display.shading.background_color=(.025,.03,.04); s.render.image_settings.file_format='PNG'
+          def M(n,c): m=bpy.data.materials.new(n); m.diffuse_color=(*c,1); m.roughness=.82; return m
+          skin=M('Skin',(.72,.45,.27)); navy=M('Navy',(.025,.055,.14)); navy2=M('NavyDark',(.012,.025,.065)); blue=M('Blue',(.035,.22,.43)); green=M('Green',(.10,.34,.16)); purple=M('Purple',(.36,.20,.48)); mustard=M('Mustard',(.66,.40,.07)); gray=M('Gray',(.30,.31,.34)); light=M('Light',(.76,.76,.74)); red=M('Red',(.56,.12,.08)); coral=M('Coral',(.64,.24,.20)); black=M('Black',(.025,.025,.03)); char=M('Charcoal',(.065,.07,.08)); brown=M('Brown',(.18,.09,.04)); brown2=M('Brown2',(.30,.14,.06)); white=M('White',(.88,.88,.86)); gold=M('Gold',(.82,.49,.09)); lime=M('HiVis',(.63,.79,.08)); hd=M('HairDark',(.05,.025,.014)); hb=M('HairBrown',(.18,.08,.03)); hbl=M('HairBlond',(.73,.49,.18)); cream=M('Cream',(.78,.70,.58)); visor=M('Visor',(.20,.40,.53))
+          def bev(o,w=.01):
+              md=o.modifiers.new('Bevel','BEVEL'); md.width=w; md.segments=1; md.limit_method='ANGLE'; bpy.context.view_layer.objects.active=o; o.select_set(True)
+              try:bpy.ops.object.modifier_apply(modifier=md.name)
+              except:pass
+              o.select_set(False)
+          def move(o,c):
+              for q in list(o.users_collection): q.objects.unlink(o)
+              c.objects.link(o); return o
+          def C(n,l,d,m,c,w=.01):
+              bpy.ops.mesh.primitive_cube_add(size=1,location=l); o=bpy.context.object; o.name=n; o.dimensions=d; bpy.ops.object.transform_apply(location=False,rotation=False,scale=True); o.data.materials.append(m); bev(o,w); return move(o,c)
+          def S(n,l,sc,m,c):
+              bpy.ops.mesh.primitive_uv_sphere_add(segments=12,ring_count=6,radius=1,location=l); o=bpy.context.object; o.name=n; o.scale=sc; bpy.ops.object.transform_apply(location=False,rotation=False,scale=True); o.data.materials.append(m); return move(o,c)
+          def Y(n,l,r,dep,m,c,sc=(1,1,1)):
+              bpy.ops.mesh.primitive_cylinder_add(vertices=10,radius=r,depth=dep,location=l); o=bpy.context.object; o.name=n; o.scale=sc; bpy.ops.object.transform_apply(location=False,rotation=False,scale=True); o.data.materials.append(m); return move(o,c)
+          def B(n,a,b,r,m,c,sc=(1,1)):
+              a,b=Vector(a),Vector(b); v=b-a; o=Y(n,(a+b)/2,r,v.length,m,c); o.rotation_euler=v.to_track_quat('Z','Y').to_euler(); o.scale.x=sc[0]; o.scale.y=sc[1]; bpy.context.view_layer.objects.active=o; o.select_set(True); bpy.ops.object.transform_apply(location=False,rotation=False,scale=True); o.select_set(False); return o
+          def F(n,z0,z1,w0,w1,d0,d1,m,c,x=0,y=0,b=.008):
+              vs=[(x-w0/2,y-d0/2,z0),(x+w0/2,y-d0/2,z0),(x+w0/2,y+d0/2,z0),(x-w0/2,y+d0/2,z0),(x-w1/2,y-d1/2,z1),(x+w1/2,y-d1/2,z1),(x+w1/2,y+d1/2,z1),(x-w1/2,y+d1/2,z1)]; fs=[(0,1,2,3),(4,7,6,5),(0,4,5,1),(1,5,6,2),(2,6,7,3),(3,7,4,0)]
+              me=bpy.data.meshes.new(n+'Mesh'); me.from_pydata(vs,[],fs); me.update(); o=bpy.data.objects.new(n,me); c.objects.link(o); o.data.materials.append(m); bev(o,b); return o
+          def K(n): q=bpy.data.collections.new(n); s.collection.children.link(q); return q
+          def hair(p,x,y,z,style,c):
+              hm=hbl if 'blond' in style else hb if 'brown' in style else hd
+              C(p+'_HairCrown',(x,y+.025,z+.105),(.27,.20,.095),hm,c,.022); C(p+'_HairFront',(x,y-.125,z+.055),(.25,.045,.085),hm,c,.015)
+              if 'long' in style: C(p+'_HairBack',(x,y+.10,z-.025),(.25,.09,.28),hm,c,.025); C(p+'_HairSideL',(x-.13,y+.01,z-.02),(.05,.12,.25),hm,c,.015); C(p+'_HairSideR',(x+.13,y+.01,z-.02),(.05,.12,.25),hm,c,.015)
+              if 'bun' in style: S(p+'_Bun',(x,y+.11,z+.20),(.075,.07,.075),hm,c)
+              if 'pony' in style: S(p+'_Pony',(x,y+.14,z-.03),(.055,.06,.14),hm,c)
+          def cap(p,x,y,z,m,c): Y(p+'_CapCrown',(x,y,z+.175),.178,.105,m,c,(1,.82,1)); C(p+'_CapBand',(x,y-.015,z+.14),(.31,.22,.045),navy2 if m==navy else m,c,.01); C(p+'_CapBrim',(x,y-.17,z+.12),(.25,.15,.028),navy2 if m==navy else m,c,.008)
+          def backpack(p,x,y,c,m=char): C(p+'_Backpack',(x,y+.15,1.21),(.26,.14,.34),m,c,.02); C(p+'_Flap',(x,y+.075,1.31),(.23,.03,.09),m,c,.01); C(p+'_StrapL',(x-.145,y+.015,1.24),(.025,.13,.31),m,c,.008); C(p+'_StrapR',(x+.145,y+.015,1.24),(.025,.13,.31),m,c,.008)
+          def person(name,x,y,sex,top,pants,shoe,hs='dark',style='tee',extra=None):
+              c=K(name); p=name; zh=1.66 if sex=='M' else 1.63; sh=.255 if sex=='M' else .235; ttop=.44 if sex=='M' else .40; tbot=.35 if sex=='M' else .33
+              C(p+'_FootL',(x-.105,y-.05,.09),(.16,.25,.14),shoe,c,.014); C(p+'_FootR',(x+.105,y-.05,.09),(.16,.25,.14),shoe,c,.014)
+              F(p+'_ShinL',.18,.52,.135,.155,.15,.17,pants,c,x-.105,y,.008); F(p+'_ShinR',.18,.52,.135,.155,.15,.17,pants,c,x+.105,y,.008); F(p+'_ThighL',.50,.86,.155,.18,.17,.20,pants,c,x-.105,y,.009); F(p+'_ThighR',.50,.86,.155,.18,.17,.20,pants,c,x+.105,y,.009); F(p+'_Pelvis',.84,1.00,.34,.38,.21,.23,pants,c,x,y,.01)
+              F(p+'_Torso',.98,1.39,tbot,ttop,.22,.25,top,c,x,y,.013); Y(p+'_Neck',(x,y,1.435),.07,.10,skin,c,(1,.90,1))
+              for side,sg in [('L',-1),('R',1)]:
+                  B(p+'_Sleeve'+side,(x+sg*sh,y,1.32),(x+sg*(sh+.025),y,1.16),.064 if sex=='M' else .058,top,c,(1,.9)); B(p+'_Forearm'+side,(x+sg*(sh+.025),y,1.16),(x+sg*(sh+.04),y,.94),.055 if sex=='M' else .050,skin,c,(1,.9)); C(p+'_Hand'+side,(x+sg*(sh+.04),y-.002,.875),(.09,.085,.13),skin,c,.02)
+              S(p+'_Head',(x,y-.01,zh),(.155,.135,.175),skin,c); hair(p,x,y,zh,hs,c)
+              if style=='hoodie': C(p+'_Hood',(x,y+.115,1.40),(.24,.10,.12),top,c,.022); C(p+'_Pocket',(x,y-.135,1.10),(.22,.025,.10),top,c,.008)
+              if style=='jacket': C(p+'_Inner',(x,y-.132,1.20),(.17,.02,.28),light,c,.004); C(p+'_Zip',(x,y-.145,1.20),(.012,.01,.29),black,c,.003)
+              if extra=='backpack': backpack(p,x,y,c)
+              if extra=='bag': C(p+'_Bag',(x+.22,y-.03,.97),(.15,.09,.24),brown2,c,.016); B(p+'_BagStrap',(x-.10,y-.13,1.36),(x+.21,y-.08,1.05),.010,brown2,c)
+              if extra=='dress': F(p+'_Dress',.78,1.21,.42,.34,.23,.21,top,c,x,y,.012)
+              return c
+          def police(name,x,y,var='base',mask=False):
+              c=person(name,x,y,'M',navy,navy,black,'dark'); p=name; cap(p,x,y,1.66,navy,c); C(p+'_CapBadge',(x,y-.175,1.84),(.055,.018,.07),gold,c,.005)
+              vm=lime if var=='hivis' else black; C(p+'_VestFront',(x,y-.135,1.19),(.36,.075,.31),vm,c,.022); C(p+'_VestBack',(x,y+.12,1.19),(.36,.07,.31),vm,c,.022); C(p+'_StrapL',(x-.125,y,1.36),(.045,.24,.045),black,c,.008); C(p+'_StrapR',(x+.125,y,1.36),(.045,.24,.045),black,c,.008)
+              C(p+'_Badge',(x+.09,y-.18,1.27),(.055,.02,.07),gold,c,.005); C(p+'_Radio',(x-.115,y-.19,1.28),(.060,.045,.105),char,c,.008); Y(p+'_Antenna',(x-.13,y-.18,1.37),.008,.095,char,c)
+              C(p+'_Belt',(x,y,1.00),(.40,.24,.055),black,c,.008); C(p+'_Buckle',(x,y-.135,1.00),(.08,.025,.06),char,c,.005); C(p+'_Holster',(x+.235,y,.91),(.08,.09,.20),black,c,.012); C(p+'_Pouch',(x-.21,y,.97),(.08,.09,.12),char,c,.01)
+              if var=='hivis':
+                  for i in range(5): C(p+'_Check'+str(i),(x-.11+i*.055,y-.178,1.18),(.045,.01,.035),navy if i%2==0 else white,c,.002)
+              if var=='baton': B(p+'_Baton',(x+.25,y-.08,1.12),(x+.39,y-.14,.88),.018,black,c)
+              if var=='riot': Y(p+'_Helmet',(x,y,1.84),.19,.15,char,c,(1,.84,1)); C(p+'_Visor',(x,y-.16,1.67),(.28,.028,.15),visor,c,.006); C(p+'_ArmorL',(x-.105,y-.09,.43),(.15,.04,.24),char,c,.008); C(p+'_ArmorR',(x+.105,y-.09,.43),(.15,.04,.24),char,c,.008)
+              if var=='backpolice': C(p+'_BackPOLICE',(x,y+.16,1.22),(.25,.018,.075),white,c,.005)
+              if mask: C(p+'_Mask',(x,y-.146,1.635),(.19,.028,.09),navy2,c,.015)
+              return c
+          males=[]; ms=[('Base',blue,navy,brown,'dark','tee',None),('Green',green,navy,brown,'dark','tee',None),('Purple',purple,black,white,'brown','tee',None),('Mustard',mustard,navy,brown,'blond','tee',None),('Hoodie',gray,navy,brown,'dark','hoodie',None),('RedJacket',red,blue,brown,'brown','jacket',None),('BlueBackpack',blue,navy,brown,'dark','jacket','backpack')]
+          for i,a in enumerate(ms): males.append(person('M_'+a[0],(i-3)*.64,0,'M',*a[1:]))
+          females=[]; fs=[('Base',purple,black,white,'bun_dark','tee',None),('Coral',coral,black,white,'pony_brown','tee',None),('White',light,navy,white,'blond','tee',None),('GreenJacket',green,navy,brown,'long_brown','jacket',None),('NavyDress',navy,black,brown,'long_dark','tee','dress'),('MustardJacket',mustard,navy,white,'pony_brown','jacket',None),('PurpleHoodie',purple,navy,white,'long_dark','hoodie','backpack')]
+          for i,a in enumerate(fs): females.append(person('F_'+a[0],(i-3)*.64,4,'F',*a[1:]))
+          cops=[]
+          for i,a in enumerate([('Base','base',False),('HiVis','hivis',False),('Baton','baton',False),('Riot','riot',False),('BackPolice','backpolice',False),('Masked','base',True)]): cops.append(police('P_'+a[0],(i-2.5)*.70,8,a[1],a[2]))
+          assets=K('ASSET_LIBRARY')
+          for i,(n,m) in enumerate([('CapNavy',navy),('CapGray',gray),('CapRed',red)]): cap('A_'+n,-1.5+i*.5,12,1.42,m,assets)
+          backpack('A_BackpackDark',.15,12,assets,char); backpack('A_BackpackGreen',.70,12,assets,green); C('A_Tote',(1.20,12,1.15),(.22,.09,.29),cream,assets,.018); C('A_ShoulderBag',(1.62,12,1.13),(.20,.09,.27),brown2,assets,.018); C('A_Mask',(2.00,11.86,1.42),(.21,.03,.10),navy2,assets,.015); C('A_HeadphoneL',(2.34,12,1.40),(.06,.075,.12),black,assets,.018); C('A_HeadphoneR',(2.55,12,1.40),(.06,.075,.12),black,assets,.018)
+          def cam(loc,target,scale): d=bpy.data.cameras.new('Camera'); o=bpy.data.objects.new('Camera',d); s.collection.objects.link(o); o.location=loc; d.type='ORTHO'; d.ortho_scale=scale; o.rotation_euler=(Vector(target)-o.location).to_track_quat('-Z','Y').to_euler(); return o
+          def show(group):
+              for c in bpy.data.collections:
+                  if c.name.startswith(('M_','F_','P_')) or c.name=='ASSET_LIBRARY': c.hide_render=(c not in group)
+          def render(path,group,y,scale): show(group); q=cam((0,y-7,1.02),(0,y,.95),scale); s.camera=q; s.render.resolution_x=1800; s.render.resolution_y=900; s.render.resolution_percentage=100; s.render.filepath=path; bpy.ops.render.render(write_still=True); bpy.data.objects.remove(q,do_unlink=True)
+          render(V+'/male_lineup.png',males,0,5.2); render(V+'/female_lineup.png',females,4,5.2); render(V+'/police_lineup.png',cops,8,4.7); render(V+'/asset_library.png',[assets],12,5.5)
+          for c in bpy.data.collections: c.hide_render=False
+          bpy.ops.wm.save_as_mainfile(filepath=OUT+'/Phase1_Character_Asset_Pack_v4.blend')
+          json.dump({'male':[a[0] for a in ms],'female':[a[0] for a in fs],'police':['Base','HiVis','Baton','Riot','BackPolice','Masked'],'shared':['caps','hair','backpacks','tote','shoulder bag','mask','headphones'],'animation':False},open(OUT+'/asset_manifest.json','w'),indent=2)
+          print('PHASE1_V4_PASS')
+          PY
+      - name: Build static pack
+        run: |
+          mkdir -p artifacts/phase1_character_pack_v4/views
+          ./blender-5.2.2-linux-x64/blender --background --python phase1_pack_v4.py | tee artifacts/phase1_character_pack_v4/blender.log
+          grep -q PHASE1_V4_PASS artifacts/phase1_character_pack_v4/blender.log
+          test -s artifacts/phase1_character_pack_v4/Phase1_Character_Asset_Pack_v4.blend
+          test -s artifacts/phase1_character_pack_v4/views/male_lineup.png
+          test -s artifacts/phase1_character_pack_v4/views/female_lineup.png
+          test -s artifacts/phase1_character_pack_v4/views/police_lineup.png
+          test -s artifacts/phase1_character_pack_v4/views/asset_library.png
+      - name: Upload proof
+        uses: actions/upload-artifact@v4
+        with:
+          name: phase1-character-pack-v4
+          path: artifacts/phase1_character_pack_v4
