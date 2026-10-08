@@ -1,0 +1,52 @@
+name: Phase1 Character Asset Pack V5
+
+on:
+  push:
+    branches: [phase1-character-pack-v5]
+
+jobs:
+  build:
+    runs-on: ubuntu-latest
+    timeout-minutes: 15
+    steps:
+      - uses: actions/checkout@v4
+      - name: Install Blender runtime
+        run: sudo apt-get update -qq && sudo apt-get install -y --no-install-recommends libegl1
+      - name: Download Blender
+        run: |
+          curl -fL --retry 3 -o blender.tar.xz https://download.blender.org/release/Blender5.2/blender-5.2.2-linux-x64.tar.xz
+          tar -xf blender.tar.xz
+      - name: Extract and refine V4 builder
+        run: |
+          python3 - <<'PY'
+          from pathlib import Path
+          lines=Path('.github/workflows/phase1-character-pack-v4.yml').read_text().splitlines()
+          start=next(i for i,x in enumerate(lines) if "cat > phase1_pack_v4.py <<'PY'" in x)
+          body=[]
+          for x in lines[start+1:]:
+              if x.strip()=='PY': break
+              body.append(x[10:] if x.startswith('          ') else x)
+          p='\n'.join(body)+'\n'
+          p=p.replace("OUT='artifacts/phase1_character_pack_v4'","OUT='artifacts/phase1_character_pack_v5'")
+          p=p.replace("z+.055),(.25,.045,.085)","z+.125),(.24,.040,.060)")
+          p=p.replace("render(V+'/asset_library.png',[assets],12,5.5)","render(V+'/asset_library.png',[assets],12,4.6)")
+          p=p.replace("Phase1_Character_Asset_Pack_v4.blend","Phase1_Character_Asset_Pack_v5.blend")
+          p=p.replace("PHASE1_V4_PASS","PHASE1_V5_PASS")
+          Path('phase1_pack_v5.py').write_text(p)
+          PY
+          python3 -m py_compile phase1_pack_v5.py
+      - name: Build static pack
+        run: |
+          mkdir -p artifacts/phase1_character_pack_v5/views
+          ./blender-5.2.2-linux-x64/blender --background --python phase1_pack_v5.py | tee artifacts/phase1_character_pack_v5/blender.log
+          grep -q PHASE1_V5_PASS artifacts/phase1_character_pack_v5/blender.log
+          test -s artifacts/phase1_character_pack_v5/Phase1_Character_Asset_Pack_v5.blend
+          test -s artifacts/phase1_character_pack_v5/views/male_lineup.png
+          test -s artifacts/phase1_character_pack_v5/views/female_lineup.png
+          test -s artifacts/phase1_character_pack_v5/views/police_lineup.png
+          test -s artifacts/phase1_character_pack_v5/views/asset_library.png
+      - name: Upload proof
+        uses: actions/upload-artifact@v4
+        with:
+          name: phase1-character-pack-v5
+          path: artifacts/phase1_character_pack_v5
