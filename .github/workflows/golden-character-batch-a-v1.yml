@@ -1,0 +1,51 @@
+name: Golden Character Batch A
+
+on:
+  push:
+    branches: [golden-character-batch-a-v1]
+  workflow_dispatch:
+
+jobs:
+  build:
+    runs-on: ubuntu-latest
+    timeout-minutes: 12
+    steps:
+      - uses: actions/checkout@v4
+      - name: Install minimal Blender runtime
+        run: sudo apt-get install -y --no-install-recommends libegl1
+      - name: Download Blender 5.2.2
+        run: |
+          curl -fL --retry 3 -o blender.tar.xz https://download.blender.org/release/Blender5.2/blender-5.2.2-linux-x64.tar.xz
+          tar -xf blender.tar.xz
+      - name: Build Golden Character Batch A
+        run: |
+          mkdir -p artifacts/golden_character_batch_a/views
+          ./blender-5.2.2-linux-x64/blender --background --python batch_a_golden_characters.py | tee artifacts/golden_character_batch_a/blender.log
+          grep -q GOLDEN_BATCH_A_PASS artifacts/golden_character_batch_a/blender.log
+          test -s artifacts/golden_character_batch_a/Golden_Character_Foundation_BatchA.blend
+          test -s artifacts/golden_character_batch_a/asset_manifest.json
+          test -s artifacts/golden_character_batch_a/qc_report.json
+          test -s artifacts/golden_character_batch_a/views/golden_style_compare.png
+          test -s artifacts/golden_character_batch_a/views/mask_library.png
+          test "$(find artifacts/golden_character_batch_a/views -name 'male_golden_*.png' | wc -l)" -eq 5
+          test "$(find artifacts/golden_character_batch_a/views -name 'female_golden_*.png' | wc -l)" -eq 5
+      - name: Verify manifest gates
+        run: |
+          python3 - <<'PY'
+          import json
+          from pathlib import Path
+          m=json.loads(Path('artifacts/golden_character_batch_a/asset_manifest.json').read_text())
+          assert m['golden_lock'] is True
+          assert m['animation'] is False
+          assert len(m['mask_assets']) == 4
+          assert len(m['qc_views']) == 5
+          assert 'Civilian Male Golden Master' in m['characters']['built']
+          assert 'Civilian Female Golden Master' in m['characters']['built']
+          print('GOLDEN_BATCH_A_VERIFY_PASS')
+          PY
+      - name: Upload Golden Character Batch A
+        uses: actions/upload-artifact@v4
+        with:
+          name: golden-character-batch-a-v1
+          path: |
+            artifacts/golden_character_batch_a/**
