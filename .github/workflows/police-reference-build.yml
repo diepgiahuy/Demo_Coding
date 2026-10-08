@@ -1,0 +1,50 @@
+name: Police Reference Build
+
+on:
+  push:
+    branches: [police-ref-build]
+  workflow_dispatch:
+
+jobs:
+  build:
+    runs-on: ubuntu-latest
+    timeout-minutes: 10
+    steps:
+      - uses: actions/checkout@v4
+      - name: Install minimal Blender runtime
+        run: sudo apt-get install -y --no-install-recommends libegl1
+      - name: Download Blender 5.2.2
+        run: |
+          curl -fL --retry 3 -o blender.tar.xz https://download.blender.org/release/Blender5.2/blender-5.2.2-linux-x64.tar.xz
+          tar -xf blender.tar.xz
+      - name: Build canonical patrol police
+        run: |
+          mkdir -p artifacts/police_reference/views
+          ./blender-5.2.2-linux-x64/blender --background --python police_reference_build.py | tee artifacts/police_reference/blender.log
+          grep -q POLICE_REFERENCE_BUILD_PASS artifacts/police_reference/blender.log
+          test -s artifacts/police_reference/Police_Officer_Reference.blend
+          test -s artifacts/police_reference/qc_report.json
+          test "$(find artifacts/police_reference/views -name '*.png' | wc -l)" -eq 5
+      - name: Verify asset report
+        run: |
+          python3 - <<'PY'
+          import json
+          from pathlib import Path
+          r=json.loads(Path('artifacts/police_reference/qc_report.json').read_text())
+          assert r['build'].startswith('from-scratch'), r
+          assert r['mesh_object_count'] >= 45, r
+          assert len(r['views']) == 5, r
+          assert not r['rigged'] and not r['animation'], r
+          required={'faceless head','police cap + cap badge','black vest front/back + shoulder straps','duty belt + buckle + pouches + holster','navy cargo pants','black boots'}
+          assert required.issubset(set(r['parts'])), r
+          print('POLICE_REFERENCE_VERIFY_PASS')
+          PY
+      - name: Upload police reference asset
+        uses: actions/upload-artifact@v4
+        with:
+          name: police-reference-v1
+          path: |
+            artifacts/police_reference/Police_Officer_Reference.blend
+            artifacts/police_reference/qc_report.json
+            artifacts/police_reference/blender.log
+            artifacts/police_reference/views/*.png
