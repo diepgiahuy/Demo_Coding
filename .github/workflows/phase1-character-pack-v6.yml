@@ -1,0 +1,106 @@
+name: Phase1 Civilian Assets + Approved Police Mask
+
+on:
+  push:
+    branches: [phase1-character-pack-v6]
+
+permissions:
+  contents: read
+  actions: read
+
+jobs:
+  build:
+    runs-on: ubuntu-latest
+    timeout-minutes: 15
+    steps:
+      - uses: actions/checkout@v4
+      - name: Install runtime
+        run: sudo apt-get update -qq && sudo apt-get install -y --no-install-recommends libegl1 unzip
+      - name: Download Blender
+        run: |
+          curl -fL --retry 3 -o blender.tar.xz https://download.blender.org/release/Blender5.2/blender-5.2.2-linux-x64.tar.xz
+          tar -xf blender.tar.xz
+      - name: Build improved civilian/accessory builder from V4
+        run: |
+          python3 - <<'PY'
+          from pathlib import Path
+          lines=Path('.github/workflows/phase1-character-pack-v4.yml').read_text().splitlines()
+          start=next(i for i,x in enumerate(lines) if "cat > phase1_pack_v4.py <<'PY'" in x)
+          body=[]
+          for x in lines[start+1:]:
+              if x.strip()=='PY': break
+              body.append(x[10:] if x.startswith('          ') else x)
+          p='\n'.join(body)+'\n'
+          p=p.replace("OUT='artifacts/phase1_character_pack_v4'","OUT='artifacts/phase1_character_pack_v6'")
+          old="C(p+'_HairCrown',(x,y+.025,z+.105),(.27,.20,.095),hm,c,.022); C(p+'_HairFront',(x,y-.125,z+.055),(.25,.045,.085),hm,c,.015)"
+          new="S(p+'_HairCrown',(x,y+.015,z+.145),(.165,.145,.095),hm,c); C(p+'_HairFringe',(x-.045,y-.137,z+.075),(.13,.028,.055),hm,c,.012)"
+          p=p.replace(old,new)
+          p=p.replace("if 'long' in style: C(p+'_HairBack',(x,y+.10,z-.025),(.25,.09,.28),hm,c,.025); C(p+'_HairSideL',(x-.13,y+.01,z-.02),(.05,.12,.25),hm,c,.015); C(p+'_HairSideR',(x+.13,y+.01,z-.02),(.05,.12,.25),hm,c,.015)","if 'long' in style: C(p+'_HairBack',(x,y+.105,z-.02),(.24,.08,.25),hm,c,.025); S(p+'_HairSideL',(x-.13,y+.005,z-.005),(.045,.07,.14),hm,c); S(p+'_HairSideR',(x+.13,y+.005,z-.005),(.045,.07,.14),hm,c)")
+          p=p.replace("for i,a in enumerate(ms): males.append(person('M_'+a[0],(i-3)*.64,0,'M',*a[1:]))","for i,a in enumerate(ms): males.append(person('M_'+a[0],(i-3)*.64,0,'M',*a[1:]))\ncap('M_Hoodie',.64,0,1.66,black,bpy.data.collections['M_Hoodie'])")
+          # Keep civilian/female collections only; approved police is handled separately below.
+          p=p.replace("cops=[]\nfor i,a in enumerate([('Base','base',False),('HiVis','hivis',False),('Baton','baton',False),('Riot','riot',False),('BackPolice','backpolice',False),('Masked','base',True)]): cops.append(police('P_'+a[0],(i-2.5)*.70,8,a[1],a[2]))","cops=[]")
+          # Replace accessory block with cleaner shared assets, including mask and headphone band.
+          a0="assets=K('ASSET_LIBRARY')\nfor i,(n,m) in enumerate([('CapNavy',navy),('CapGray',gray),('CapRed',red)]): cap('A_'+n,-1.5+i*.5,12,1.42,m,assets)\nbackpack('A_BackpackDark',.15,12,assets,char); backpack('A_BackpackGreen',.70,12,assets,green); C('A_Tote',(1.20,12,1.15),(.22,.09,.29),cream,assets,.018); C('A_ShoulderBag',(1.62,12,1.13),(.20,.09,.27),brown2,assets,.018); C('A_Mask',(2.00,11.86,1.42),(.21,.03,.10),navy2,assets,.015); C('A_HeadphoneL',(2.34,12,1.40),(.06,.075,.12),black,assets,.018); C('A_HeadphoneR',(2.55,12,1.40),(.06,.075,.12),black,assets,.018)"
+          a1="assets=K('ASSET_LIBRARY')\nfor i,(n,m) in enumerate([('CapNavy',navy),('CapGray',gray),('CapRed',red)]): Y('A_'+n+'_Crown',(-1.5+i*.5,12,1.48),.15,.13,m,assets,(1,.82,1)); C('A_'+n+'_Brim',(-1.5+i*.5,11.88,1.43),(.22,.12,.025),m,assets,.007)\nbackpack('A_BackpackDark',.10,12,assets,char); backpack('A_BackpackGreen',.62,12,assets,green); C('A_Tote',(1.12,12,1.15),(.22,.09,.29),cream,assets,.018); B('A_ToteHandleL',(1.04,12,1.30),(1.04,12,1.47),.009,cream,assets); B('A_ToteHandleR',(1.20,12,1.30),(1.20,12,1.47),.009,cream,assets); C('A_ShoulderBag',(1.55,12,1.13),(.20,.09,.27),brown2,assets,.018); B('A_ShoulderStrap',(1.46,12,1.28),(1.64,12,1.58),.010,brown2,assets); C('A_Mask',(1.98,11.86,1.42),(.21,.03,.10),navy2,assets,.015); B('A_MaskLoopL',(1.875,11.86,1.43),(1.82,12,1.43),.006,navy2,assets); B('A_MaskLoopR',(2.085,11.86,1.43),(2.14,12,1.43),.006,navy2,assets); C('A_HeadphoneL',(2.38,12,1.40),(.055,.075,.12),black,assets,.018); C('A_HeadphoneR',(2.60,12,1.40),(.055,.075,.12),black,assets,.018); C('A_HeadphoneBand',(2.49,12,1.52),(.26,.06,.035),black,assets,.012)"
+          p=p.replace(a0,a1)
+          p=p.replace("render(V+'/male_lineup.png',males,0,5.2); render(V+'/female_lineup.png',females,4,5.2); render(V+'/police_lineup.png',cops,8,4.7); render(V+'/asset_library.png',[assets],12,5.5)","render(V+'/male_lineup.png',males,0,5.2); render(V+'/female_lineup.png',females,4,5.2); render(V+'/asset_library.png',[assets],12,4.5)")
+          p=p.replace("Phase1_Character_Asset_Pack_v4.blend","Civilian_Asset_Pack_v6.blend")
+          p=p.replace("'police':['Base','HiVis','Baton','Riot','BackPolice','Masked'],","'police':'approved-separate',")
+          p=p.replace("PHASE1_V4_PASS","PHASE1_CIVILIAN_V6_PASS")
+          Path('phase1_civilian_v6.py').write_text(p)
+          PY
+          python3 -m py_compile phase1_civilian_v6.py
+      - name: Build civilians and shared accessories
+        run: |
+          mkdir -p artifacts/phase1_character_pack_v6/views
+          ./blender-5.2.2-linux-x64/blender --background --python phase1_civilian_v6.py | tee artifacts/phase1_character_pack_v6/civilian.log
+          grep -q PHASE1_CIVILIAN_V6_PASS artifacts/phase1_character_pack_v6/civilian.log
+          test -s artifacts/phase1_character_pack_v6/Civilian_Asset_Pack_v6.blend
+          test -s artifacts/phase1_character_pack_v6/views/male_lineup.png
+          test -s artifacts/phase1_character_pack_v6/views/female_lineup.png
+          test -s artifacts/phase1_character_pack_v6/views/asset_library.png
+      - name: Download approved police proof
+        env:
+          GH_TOKEN: ${{ github.token }}
+        run: |
+          curl -fL --retry 3 -H "Authorization: Bearer $GH_TOKEN" -H "Accept: application/vnd.github+json" \
+            -o approved-police.zip https://api.github.com/repos/${{ github.repository }}/actions/artifacts/11529307389/zip
+          mkdir police-src && unzip -q approved-police.zip -d police-src
+          find police-src -name 'Police_Officer_Reference.blend' -print -quit | grep .
+      - name: Add modular mask to approved police
+        run: |
+          cat > add_police_mask.py <<'PY'
+          import bpy, os, math
+          from mathutils import Vector
+          out='artifacts/phase1_character_pack_v6'; views=out+'/views'
+          # Remove stale cameras only; preserve approved police geometry/materials.
+          for o in list(bpy.data.objects):
+              if o.type=='CAMERA': bpy.data.objects.remove(o,do_unlink=True)
+          m=bpy.data.materials.get('Police_Navy_Trim') or bpy.data.materials.new('Mask_Navy')
+          if not getattr(m,'diffuse_color',None): m.diffuse_color=(.012,.026,.07,1)
+          bpy.ops.mesh.primitive_cube_add(size=1, location=(0,-.192,1.595)); mask=bpy.context.object; mask.name='ACC_Mask_Base'; mask.dimensions=(.235,.035,.105); bpy.ops.object.transform_apply(location=False,rotation=False,scale=True); mask.data.materials.append(m)
+          md=mask.modifiers.new('Mask_Soften','BEVEL'); md.width=.014; md.segments=1; bpy.context.view_layer.objects.active=mask; bpy.ops.object.modifier_apply(modifier=md.name)
+          acc=bpy.data.collections.get('ACCESSORIES') or bpy.data.collections.new('ACCESSORIES')
+          if acc.name not in [c.name for c in bpy.context.scene.collection.children]: bpy.context.scene.collection.children.link(acc)
+          for c in list(mask.users_collection): c.objects.unlink(mask)
+          acc.objects.link(mask)
+          def bar(n,a,b,r=.006):
+              a,b=Vector(a),Vector(b); v=b-a; mid=(a+b)/2; bpy.ops.mesh.primitive_cylinder_add(vertices=8,radius=r,depth=v.length,location=mid); o=bpy.context.object; o.name=n; o.rotation_euler=v.to_track_quat('Z','Y').to_euler(); o.data.materials.append(m); return o
+          bar('ACC_Mask_Loop_L',(-.115,-.19,1.60),(-.19,-.06,1.60)); bar('ACC_Mask_Loop_R',(.115,-.19,1.60),(.19,-.06,1.60))
+          sc=bpy.context.scene; sc.render.engine='BLENDER_WORKBENCH'; sc.display.shading.light='STUDIO'; sc.display.shading.studio_light='paint.sl'; sc.display.shading.color_type='MATERIAL'; sc.display.shading.show_shadows=True; sc.display.shading.show_cavity=True; sc.display.shading.background_type='VIEWPORT'; sc.display.shading.background_color=(.025,.03,.04); sc.render.image_settings.file_format='PNG'; sc.render.resolution_x=700; sc.render.resolution_y=900; sc.render.resolution_percentage=100
+          def render(name,loc):
+              d=bpy.data.cameras.new('QC_'+name); c=bpy.data.objects.new('QC_'+name,d); sc.collection.objects.link(c); c.location=loc; d.type='ORTHO'; d.ortho_scale=2.18; c.rotation_euler=(Vector((0,0,1.0))-c.location).to_track_quat('-Z','Y').to_euler(); sc.camera=c; sc.render.filepath=views+'/'+name+'.png'; bpy.ops.render.render(write_still=True); bpy.data.objects.remove(c,do_unlink=True)
+          render('police_mask_front',(0,-5,1.0)); render('police_mask_three_quarter',(3.4,-3.4,1.15))
+          bpy.ops.wm.save_as_mainfile(filepath=out+'/Police_Officer_Reference_Masked.blend')
+          print('APPROVED_POLICE_MASK_PASS')
+          PY
+          PBLEND=$(find police-src -name 'Police_Officer_Reference.blend' -print -quit)
+          ./blender-5.2.2-linux-x64/blender --background "$PBLEND" --python add_police_mask.py | tee artifacts/phase1_character_pack_v6/police.log
+          grep -q APPROVED_POLICE_MASK_PASS artifacts/phase1_character_pack_v6/police.log
+          test -s artifacts/phase1_character_pack_v6/Police_Officer_Reference_Masked.blend
+          test -s artifacts/phase1_character_pack_v6/views/police_mask_front.png
+      - name: Upload Phase 1 static pack
+        uses: actions/upload-artifact@v4
+        with:
+          name: phase1-character-pack-v6
+          path: artifacts/phase1_character_pack_v6
