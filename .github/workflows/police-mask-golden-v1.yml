@@ -1,0 +1,42 @@
+name: Police Golden Mask Proof
+
+on:
+  push:
+    branches: [police-mask-golden-v1]
+
+jobs:
+  build:
+    runs-on: ubuntu-latest
+    timeout-minutes: 15
+    steps:
+      - uses: actions/checkout@v4
+      - name: Install Blender runtime
+        run: sudo apt-get update -qq && sudo apt-get install -y --no-install-recommends libegl1
+      - name: Download Blender
+        run: |
+          curl -fL --retry 3 -o blender.tar.xz https://download.blender.org/release/Blender5.2/blender-5.2.2-linux-x64.tar.xz
+          tar -xf blender.tar.xz
+      - name: Rebuild approved police golden reference
+        run: |
+          ./blender-5.2.2-linux-x64/blender --background --python police_reference_build.py | tee police_golden.log
+          grep -q POLICE_REFERENCE_BUILD_PASS police_golden.log
+          test -s artifacts/police_reference/Police_Officer_Reference.blend
+      - name: Add modular mask from actual head bounds
+        run: |
+          ./blender-5.2.2-linux-x64/blender --background --python police_mask_golden_build.py | tee police_mask.log
+          grep -q POLICE_MASK_GOLDEN_PASS police_mask.log
+          test -s artifacts/police_mask_golden/Police_Officer_Golden_With_Mask.blend
+          test -s artifacts/police_mask_golden/views/front.png
+          test -s artifacts/police_mask_golden/views/three_quarter.png
+          test -s artifacts/police_mask_golden/views/side.png
+      - name: Upload proof
+        uses: actions/upload-artifact@v4
+        with:
+          name: police-mask-golden-v1
+          path: |
+            artifacts/police_reference/views/front.png
+            artifacts/police_reference/views/three_quarter.png
+            artifacts/police_reference/views/side.png
+            artifacts/police_mask_golden/Police_Officer_Golden_With_Mask.blend
+            artifacts/police_mask_golden/qc_report.json
+            artifacts/police_mask_golden/views/*.png
