@@ -1,14 +1,14 @@
-name: Exact Animated Men Women Blender Proof
+name: Real Blender City Outbreak POC
 
 on:
   push:
-    branches: [animated-men-women-proof]
+    branches: [city-outbreak-poc]
   workflow_dispatch:
 
 jobs:
   proof:
     runs-on: ubuntu-latest
-    timeout-minutes: 20
+    timeout-minutes: 25
 
     steps:
       - name: Checkout
@@ -25,136 +25,135 @@ jobs:
           tar -xf blender.tar.xz
           ./blender-5.2.2-linux-x64/blender --version
 
-      - name: Download exact Quaternius pack mirror
+      - name: Download verified city assets
         run: |
-          mkdir -p source_exact_packs/men source_exact_packs/women artifacts/animated_men_women
+          mkdir -p assets/city_outbreak/city assets/city_outbreak/cars/Textures
+          mkdir -p assets/city_outbreak/people/men assets/city_outbreak/people/women
+          mkdir -p artifacts/city_outbreak/frames
+
+          BASE_CITY='https://raw.githubusercontent.com/AkiraNim/CLTCrossing/6fe4cd6dcb6fbfa4267d3b9971c0968e0fe375b6/CltCrossingv2/assets/kenney_city-kit-suburban'
+          for f in house_type02.glb house_type06.glb house_type12.glb house_type17.glb tree_large.glb tree_small.glb; do
+            curl -fL --retry 3 -o "assets/city_outbreak/city/$f" "$BASE_CITY/$f"
+          done
+
+          BASE_CAR='https://raw.githubusercontent.com/AkiraNim/CLTCrossing/6fe4cd6dcb6fbfa4267d3b9971c0968e0fe375b6/CltCrossingv2/assets/kenney_car-kit'
+          curl -fL --retry 3 -o assets/city_outbreak/cars/sedan.glb "$BASE_CAR/sedan.glb"
+          curl -fL --retry 3 -o assets/city_outbreak/cars/police.glb "$BASE_CAR/police.glb"
+          curl -fL --retry 3 -o assets/city_outbreak/cars/Textures/colormap.png "$BASE_CAR/Textures/colormap.png"
+
+          curl -fL --retry 3 -o assets/city_outbreak/cars/ambulance.glb \
+            https://raw.githubusercontent.com/MMqd/godot-screenspace-projection/main/assets/kenney_car-kit/ambulance.glb
+
           curl -fL --retry 3 -o men.zip https://raw.githubusercontent.com/MRPT/mvsim-models/main/AnimatedMenCharacters.zip
           curl -fL --retry 3 -o women.zip https://raw.githubusercontent.com/MRPT/mvsim-models/main/AnimatedWomenCharacters.zip
-          unzip -q men.zip -d source_exact_packs/men
-          unzip -q women.zip -d source_exact_packs/women
+          unzip -q men.zip -d assets/city_outbreak/people/men
+          unzip -q women.zip -d assets/city_outbreak/people/women
 
-      - name: Verify exact source filenames
+      - name: Verify source assets
         run: |
           for f in \
-            source_exact_packs/men/FBX/Male_Casual.fbx \
-            source_exact_packs/men/FBX/Male_LongSleeve.fbx \
-            source_exact_packs/men/FBX/Male_Shirt.fbx \
-            source_exact_packs/men/FBX/Male_Suit.fbx \
-            source_exact_packs/women/FBX/Female_Alternative.fbx \
-            source_exact_packs/women/FBX/Female_Casual.fbx \
-            source_exact_packs/women/FBX/Female_Dress.fbx \
-            source_exact_packs/women/FBX/Female_TankTop.fbx; do
+            assets/city_outbreak/city/house_type02.glb \
+            assets/city_outbreak/city/house_type06.glb \
+            assets/city_outbreak/city/house_type12.glb \
+            assets/city_outbreak/city/house_type17.glb \
+            assets/city_outbreak/city/tree_large.glb \
+            assets/city_outbreak/city/tree_small.glb \
+            assets/city_outbreak/cars/ambulance.glb \
+            assets/city_outbreak/cars/police.glb \
+            assets/city_outbreak/cars/sedan.glb \
+            assets/city_outbreak/people/men/FBX/Male_Casual.fbx \
+            assets/city_outbreak/people/men/FBX/Male_Suit.fbx \
+            assets/city_outbreak/people/women/FBX/Female_Casual.fbx \
+            assets/city_outbreak/people/women/FBX/Female_Dress.fbx; do
             test -s "$f"
             echo "PASS $f $(stat -c%s "$f")"
           done
-          find source_exact_packs -type f | sort > artifacts/animated_men_women/source_tree.txt
 
-      - name: Build eight exact Blender proofs
+      - name: Build and render Blender scene
         run: |
-          ./blender-5.2.2-linux-x64/blender --background --python animated_men_women_proof.py | tee artifacts/animated_men_women/blender.log
-          grep -q ANIMATED_MEN_WOMEN_PROOF_PASS artifacts/animated_men_women/blender.log
-          test -s artifacts/animated_men_women/qc_report.json
+          ./blender-5.2.2-linux-x64/blender --background --python animated_men_women_proof.py \
+            | tee artifacts/city_outbreak/blender.log
+          grep -q CITY_OUTBREAK_POC_PASS artifacts/city_outbreak/blender.log
+          test -s artifacts/city_outbreak/city_outbreak_poc.blend
+          test -s artifacts/city_outbreak/qc_report.json
+          test "$(find artifacts/city_outbreak/frames -name 'frame_*.png' | wc -l)" -eq 60
 
-      - name: Encode eight walk previews
+      - name: Encode proof video
         run: |
-          for d in \
-            Men_Casual Men_LongSleeve Men_Shirt Men_Suit \
-            Women_Alternative Women_Casual Women_Dress Women_TankTop; do
-            test -s "artifacts/animated_men_women/$d/$d.blend"
-            test "$(find "artifacts/animated_men_women/$d/frames" -name 'frame_*.png' | wc -l)" -eq 33
-            ffmpeg -y -framerate 30 -pattern_type glob \
-              -i "artifacts/animated_men_women/$d/frames/frame_*.png" \
-              -c:v libx264 -preset medium -crf 18 -pix_fmt yuv420p -movflags +faststart \
-              "artifacts/animated_men_women/$d/${d}_walk.mp4"
-          done
+          ffmpeg -y -framerate 30 -pattern_type glob \
+            -i 'artifacts/city_outbreak/frames/frame_*.png' \
+            -c:v libx264 -preset medium -crf 18 -pix_fmt yuv420p -movflags +faststart \
+            artifacts/city_outbreak/city_outbreak_poc.mp4
 
-      - name: Build combined eight-person preview
-        run: |
-          ffmpeg -y \
-            -i artifacts/animated_men_women/Men_Casual/Men_Casual_walk.mp4 \
-            -i artifacts/animated_men_women/Men_LongSleeve/Men_LongSleeve_walk.mp4 \
-            -i artifacts/animated_men_women/Men_Shirt/Men_Shirt_walk.mp4 \
-            -i artifacts/animated_men_women/Men_Suit/Men_Suit_walk.mp4 \
-            -i artifacts/animated_men_women/Women_Alternative/Women_Alternative_walk.mp4 \
-            -i artifacts/animated_men_women/Women_Casual/Women_Casual_walk.mp4 \
-            -i artifacts/animated_men_women/Women_Dress/Women_Dress_walk.mp4 \
-            -i artifacts/animated_men_women/Women_TankTop/Women_TankTop_walk.mp4 \
-            -filter_complex "[0:v][1:v][2:v][3:v][4:v][5:v][6:v][7:v]xstack=inputs=8:layout=0_0|300_0|600_0|900_0|0_450|300_450|600_450|900_450[v]" \
-            -map "[v]" -c:v libx264 -preset medium -crf 18 -pix_fmt yuv420p -movflags +faststart \
-            artifacts/animated_men_women/Animated_Men_Women_8_walk.mp4
+          ffmpeg -y -i artifacts/city_outbreak/city_outbreak_poc.mp4 \
+            -vf "select='eq(n,0)+eq(n,19)+eq(n,31)+eq(n,45)',scale=480:270,tile=2x2" \
+            -frames:v 1 artifacts/city_outbreak/contact_sheet.png
 
-          ffmpeg -y -i artifacts/animated_men_women/Animated_Men_Women_8_walk.mp4 \
-            -vf "select='eq(n,16)'" -frames:v 1 artifacts/animated_men_women/contact_sheet.png
-
-      - name: Verify outputs
+      - name: Verify Blender proof
         run: |
           python3 - <<'PY'
           import json, subprocess
           from pathlib import Path
-          root = Path('artifacts/animated_men_women')
+          root = Path('artifacts/city_outbreak')
           report = json.loads((root/'qc_report.json').read_text())
           assert report['blender_version'].startswith('5.2.2'), report['blender_version']
-          assert len(report['characters']) == 8, len(report['characters'])
-          assert sum(c['pack'] == 'Men' for c in report['characters']) == 4
-          assert sum(c['pack'] == 'Women' for c in report['characters']) == 4
-          for c in report['characters']:
-              assert 'walk' in c['walk_action'].lower(), c
-              assert c['bones'] >= 10, c
-              assert c['meshes'] >= 1, c
-              assert c['moving_limbs'] >= 2, c
-              blend = root/c['name']/f"{c['name']}.blend"
-              video = root/c['name']/f"{c['name']}_walk.mp4"
-              assert blend.stat().st_size > 100000, blend
-              assert video.stat().st_size > 5000, video
-          combined = root/'Animated_Men_Women_8_walk.mp4'
+          cats = [a['category'] for a in report['assets']]
+          assert cats.count('building') == 4, cats
+          assert cats.count('tree') == 6, cats
+          assert cats.count('ambulance') == 1, cats
+          assert cats.count('police') == 1, cats
+          assert cats.count('car') >= 2, cats
+          assert cats.count('wreck') == 1, cats
+          assert len(report['people']) == 4, report['people']
+          assert all(p['bones'] >= 10 for p in report['people'])
+          assert all('walk' in p['walk_action'].lower() for p in report['people'])
+          assert report['fx']['flames'] == 3, report['fx']
+          assert report['fx']['smoke_puffs'] == 11, report['fx']
+          assert report['fx']['debris'] == 14, report['fx']
+          assert (root/'city_outbreak_poc.blend').stat().st_size > 500000
+          assert (root/'city_outbreak_poc.mp4').stat().st_size > 20000
+          assert (root/'contact_sheet.png').stat().st_size > 10000
           out = subprocess.check_output([
               'ffprobe','-v','error','-select_streams','v:0',
-              '-show_entries','stream=width,height,nb_frames','-of','json',str(combined)
+              '-show_entries','stream=width,height,nb_frames','-of','json',
+              str(root/'city_outbreak_poc.mp4')
           ])
           stream = json.loads(out)['streams'][0]
-          assert int(stream['width']) == 1200 and int(stream['height']) == 900, stream
-          assert int(stream['nb_frames']) == 33, stream
-          assert (root/'contact_sheet.png').stat().st_size > 10000
-          print('EXACT_PACK_VERIFY_PASS')
+          assert int(stream['width']) == 640 and int(stream['height']) == 360, stream
+          assert int(stream['nb_frames']) == 60, stream
+          print('CITY_OUTBREAK_VERIFY_PASS')
           PY
 
-      - name: Add source note
+      - name: Write source manifest
         run: |
-          cat > artifacts/animated_men_women/SOURCE.txt <<'EOF'
-          Exact Quaternius February 2019 animated human packs.
-          License: CC0 1.0.
-          Official Men Drive: https://drive.google.com/drive/folders/17LibivOaUidsQhSkcxP3YYvDr0n7wIwu
-          Official Women Drive: https://drive.google.com/drive/folders/1c13R--fMqdR6r2MRlcKKsbPky0__T-yJ
-          Mirror used for CI: https://github.com/MRPT/mvsim-models
-          Mirror files: AnimatedMenCharacters.zip and AnimatedWomenCharacters.zip.
-          The FBX filenames match the official Quaternius Drive folders.
-          No generated or substitute character mesh is used.
+          cat > artifacts/city_outbreak/SOURCE.txt <<'EOF'
+          Blender scene proof. No generated image is used as scene content.
+
+          Buildings and trees:
+          Kenney City Kit (Suburban), CC0.
+          Mirror files: AkiraNim/CLTCrossing at commit 6fe4cd6dcb6fbfa4267d3b9971c0968e0fe375b6.
+
+          Vehicles:
+          Kenney Car Kit, CC0.
+          Sedan and police mirror: AkiraNim/CLTCrossing.
+          Ambulance mirror: MMqd/godot-screenspace-projection.
+
+          People:
+          Quaternius Animated Men Pack and Animated Women Pack, CC0.
+          CI mirror: MRPT/mvsim-models.
+
+          Fire, smoke, explosion flash, debris, road, sidewalks and road markings:
+          Generated as Blender geometry, materials, lights and keyframes inside the .blend scene.
           EOF
 
-      - name: Upload exact pack artifact
+      - name: Upload Blender artifact
         uses: actions/upload-artifact@v4
         with:
-          name: exact-animated-men-women-8-blender-proof
+          name: city-outbreak-real-blender-poc
           path: |
-            artifacts/animated_men_women/Men_Casual/Men_Casual.blend
-            artifacts/animated_men_women/Men_Casual/Men_Casual_walk.mp4
-            artifacts/animated_men_women/Men_LongSleeve/Men_LongSleeve.blend
-            artifacts/animated_men_women/Men_LongSleeve/Men_LongSleeve_walk.mp4
-            artifacts/animated_men_women/Men_Shirt/Men_Shirt.blend
-            artifacts/animated_men_women/Men_Shirt/Men_Shirt_walk.mp4
-            artifacts/animated_men_women/Men_Suit/Men_Suit.blend
-            artifacts/animated_men_women/Men_Suit/Men_Suit_walk.mp4
-            artifacts/animated_men_women/Women_Alternative/Women_Alternative.blend
-            artifacts/animated_men_women/Women_Alternative/Women_Alternative_walk.mp4
-            artifacts/animated_men_women/Women_Casual/Women_Casual.blend
-            artifacts/animated_men_women/Women_Casual/Women_Casual_walk.mp4
-            artifacts/animated_men_women/Women_Dress/Women_Dress.blend
-            artifacts/animated_men_women/Women_Dress/Women_Dress_walk.mp4
-            artifacts/animated_men_women/Women_TankTop/Women_TankTop.blend
-            artifacts/animated_men_women/Women_TankTop/Women_TankTop_walk.mp4
-            artifacts/animated_men_women/Animated_Men_Women_8_walk.mp4
-            artifacts/animated_men_women/contact_sheet.png
-            artifacts/animated_men_women/qc_report.json
-            artifacts/animated_men_women/source_tree.txt
-            artifacts/animated_men_women/SOURCE.txt
-            artifacts/animated_men_women/blender.log
+            artifacts/city_outbreak/city_outbreak_poc.blend
+            artifacts/city_outbreak/city_outbreak_poc.mp4
+            artifacts/city_outbreak/contact_sheet.png
+            artifacts/city_outbreak/qc_report.json
+            artifacts/city_outbreak/SOURCE.txt
+            artifacts/city_outbreak/blender.log
