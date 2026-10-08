@@ -289,11 +289,16 @@ def camera():
 
 def render_setup():
     s=bpy.context.scene
-    s.render.engine="BLENDER_EEVEE"
+    s.render.engine="BLENDER_WORKBENCH"
+    s.display.shading.light="STUDIO"
+    s.display.shading.color_type="MATERIAL"
+    s.display.shading.show_shadows=True
+    s.display.shading.show_cavity=True
     s.render.resolution_x=640; s.render.resolution_y=360; s.render.resolution_percentage=100
     s.render.fps=FPS; s.frame_start=START; s.frame_end=END
     s.render.image_settings.file_format="PNG"; s.render.image_settings.color_mode="RGB"
     s.render.filepath=str(FRAMES/"frame_")
+    report["renderer"]="BLENDER_WORKBENCH"
 
 
 def main():
